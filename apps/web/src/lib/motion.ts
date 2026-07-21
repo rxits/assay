@@ -5,7 +5,19 @@
 // for the Emil-Kowalski "interruptible & calm" feel. This is a Vite SPA, so the
 // SSR mount-guard dance the skill prescribes is unnecessary; useReducedMotion()
 // from motion/react is the accessibility gate at every call site.
-import type { Variants } from "motion/react";
+import { useReducedMotion, type Variants } from "motion/react";
+import { usePreferences } from "@/lib/preferences";
+
+/**
+ * The single motion gate for the app: the OS setting OR the in-app override from Settings.
+ * Every call site uses this instead of motion/react's useReducedMotion so a user who can't
+ * change their OS preference (shared machine, kiosk) still gets a calm interface.
+ */
+export function useReduceMotion(): boolean {
+  const system = useReducedMotion() ?? false;
+  const { motion } = usePreferences();
+  return system || motion === "reduced";
+}
 
 export const springs = {
   /** Default UI — nav active indicator, chips, small snaps. */

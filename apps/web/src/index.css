@@ -192,7 +192,20 @@
   }
 }
 
-/* 05 §2.7 / §8 — reduced motion zeroes every duration; gauges render final. */
+/* Table density (R3, Settings → Appearance). Compact tightens the row box and drops the
+   type one step; it deliberately does NOT shrink hit areas below ~32px. Attribute-driven
+   so switching density costs zero React renders — the browser just restyles. */
+:root[data-density="compact"] :is(th, td) {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+}
+:root[data-density="compact"] table {
+  font-size: 13px;
+}
+
+/* 05 §2.7 / §8 — reduced motion zeroes every duration; gauges render final.
+   Two triggers: the OS setting, and the in-app override from Settings → Appearance
+   (JS-driven motion reads the same override through useReduceMotion()). */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -202,4 +215,12 @@
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
 }

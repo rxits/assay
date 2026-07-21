@@ -15,15 +15,20 @@ import type {
   ApiError,
   ApiErrorCode,
   ApiSuccess,
+  AppSettingsPatch,
+  AppSettingsResponse,
   CatalogQuery,
   ClassificationOverrideResponse,
   DatasetDetail,
+  DataMutationResult,
   DatasetOverview,
   DatasetSummary,
   FieldError,
   HealthResponse,
   PiiCategory,
+  RecomputeResult,
   Sensitivity,
+  SystemStatus,
   UsageSeries,
 } from "@assay/shared";
 
@@ -142,6 +147,41 @@ export function uploadDataset(vars: UploadVars): Promise<DatasetSummary> {
   });
 }
 
+// ---- Settings + system (R3) ---------------------------------------------
+
+const json = (method: string, body?: unknown): RequestInit => ({
+  method,
+  ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+});
+
+export async function getSettings(): Promise<AppSettingsResponse> {
+  return (await http<ApiSuccess<AppSettingsResponse>>("/api/settings")).data;
+}
+
+export async function patchSettings(patch: AppSettingsPatch): Promise<AppSettingsResponse> {
+  return (await http<ApiSuccess<AppSettingsResponse>>("/api/settings", json("PATCH", patch))).data;
+}
+
+export async function resetSettings(): Promise<AppSettingsResponse> {
+  return (await http<ApiSuccess<AppSettingsResponse>>("/api/settings/reset", json("POST"))).data;
+}
+
+export async function recomputeScores(): Promise<RecomputeResult> {
+  return (await http<ApiSuccess<RecomputeResult>>("/api/settings/recompute", json("POST"))).data;
+}
+
+export async function getSystem(): Promise<SystemStatus> {
+  return (await http<ApiSuccess<SystemStatus>>("/api/system")).data;
+}
+
+export async function reseedDemoData(): Promise<DataMutationResult> {
+  return (await http<ApiSuccess<DataMutationResult>>("/api/data/reseed", json("POST"))).data;
+}
+
+export async function deleteAllDatasets(): Promise<DataMutationResult> {
+  return (await http<ApiSuccess<DataMutationResult>>("/api/data/datasets", json("DELETE"))).data;
+}
+
 export interface OverrideVars {
   datasetId: string;
   columnId: string;
@@ -170,7 +210,17 @@ export const queryKeys = {
   dataset: (id: string) => ["dataset", id] as const,
   usage: (id: string, days?: number) => ["usage", id, days ?? 90] as const,
   overview: () => ["overview"] as const,
+  settings: () => ["settings"] as const,
+  system: () => ["system"] as const,
 };
+
+/** Every score-bearing view. Re-scoring or reseeding invalidates all of them at once. */
+function invalidateCatalog(qc: ReturnType<typeof useQueryClient>): void {
+  void qc.invalidateQueries({ queryKey: ["datasets"] });
+  void qc.invalidateQueries({ queryKey: ["dataset"] });
+  void qc.invalidateQueries({ queryKey: ["overview"] });
+  void qc.invalidateQueries({ queryKey: ["usage"] });
+}
 
 export function useOverview() {
   return useQuery({
@@ -225,4 +275,50 @@ export function useOverrideClassification() {
       void qc.invalidateQueries({ queryKey: ["overview"] });
     },
   });
+}
+
+// ---- Settings hooks -----------------------------------------------------
+
+export function useSettings() {
+  return useQuery({ queryKey: queryKeys.settings(), queryFn: getSettings });
+}
+
+export function useSystem() {
+  return useQuery({
+    queryKey: queryKeys.system(),
+    queryFn: getSystem,
+    // The uptime/latency readout is a diagnostic — a minute-old answer is a wrong answer.
+    refetchInterval: 30_000,
+  });
+}
+
+export function usePatchSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: patchSettings,
+    onSuccess: (data) => qc.setQueryData(queryKeys.settings(), data),
+  });
+}
+
+export function useResetSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: resetSettings,
+    onSuccess: (data) => qc.setQueryData(queryKeys.settings(), data),
+  });
+}
+
+export function useRecomputeScores() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: recomputeScores, onSuccess: () => invalidateCatalog(qc) });
+}
+
+export function useReseedDemoData() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: reseedDemoData, onSuccess: () => invalidateCatalog(qc) });
+}
+
+export function useDeleteAllDatasets() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: deleteAllDatasets, onSuccess: () => invalidateCatalog(qc) });
 }

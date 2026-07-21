@@ -17,7 +17,7 @@ import {
   TrendingUp,
   TriangleAlert,
 } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { Link, useParams } from "react-router-dom";
 import type { ColumnDTO, DatasetDetail } from "@assay/shared";
 import { MissingValueBar } from "@/components/charts/MissingValueBar";
@@ -29,8 +29,7 @@ import { ScoreBreakdown, type SubRows } from "@/components/dataset/ScoreBreakdow
 import { RecommendationBadge, SensitivityBadge } from "@/components/dataset/SensitivityBadge";
 import { ApiClientError, useDataset, useUsage } from "@/lib/api";
 import { formatBytes, formatCompact, formatCount, formatPct, relativeTime } from "@/lib/format";
-import { fadeUpItem, staggerContainer } from "@/lib/motion";
-import { Toaster } from "@/lib/toast";
+import { fadeUpItem, staggerContainer, useReduceMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const GLASS_CARD = "glass rounded-xl border border-[color:var(--glass-border)]";
@@ -55,7 +54,6 @@ export function DatasetDetailPage() {
       {data && (
         <Detail data={data} usage={usageQuery.data ?? data.usage} usageLoading={usageQuery.isLoading && !data.usage} />
       )}
-      <Toaster />
     </div>
   );
 }
@@ -85,7 +83,7 @@ function Detail({
   usage: DatasetDetail["usage"];
   usageLoading: boolean;
 }) {
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useReduceMotion();
   const sb = data.scoreBreakdown;
 
   // Trust is defined over quality, completeness, accuracy, consistency and

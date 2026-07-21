@@ -3,11 +3,12 @@
 // rail (ui-styling / design-system), a Linear-style cursor spotlight and springy
 // active-nav indicator (motion-foundations / motion-ui), and the small-details
 // polish (hit areas ≥ 40px, tabular chrome, split enter/exit) from
-// make-interfaces-feel-better. All motion is gated by useReducedMotion() and the
+// make-interfaces-feel-better. All motion is gated by useReduceMotion() (OS setting OR
+// the Settings → Appearance override) and the
 // spotlight additionally by (hover:hover)+(pointer:fine) so touch never pays for it.
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   FlaskConical,
   LayoutDashboard,
@@ -20,8 +21,10 @@ import {
   type LucideProps,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Toaster } from "@/lib/toast";
+import { usePreferences } from "@/lib/preferences";
 import { UploadDropzone } from "@/components/catalog/UploadDropzone";
-import { motionTokens, springs } from "@/lib/motion";
+import { motionTokens, springs, useReduceMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const SIDEBAR_KEY = "assay-sidebar";
@@ -37,12 +40,14 @@ const NAV = [
 // very low opacity (never a decorative colour blob). GPU-cheap: one rAF-throttled
 // CSS-var write per frame, pointer-events:none, behind all content (z-0).
 function CursorSpotlight() {
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useReduceMotion();
+  const { spotlight } = usePreferences();
   const ref = useRef<HTMLDivElement>(null);
   const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
-    if (reduce) return;
+    setEnabled(false);
+    if (reduce || !spotlight) return;
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
     setEnabled(true);
@@ -63,7 +68,7 @@ function CursorSpotlight() {
       window.removeEventListener("pointermove", onMove);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [reduce]);
+  }, [reduce, spotlight]);
 
   if (!enabled) return null;
   return (
@@ -212,7 +217,7 @@ function NavRail({
   onToggle: () => void;
   onUpload: () => void;
 }) {
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useReduceMotion();
   return (
     <aside
       className={cn(
@@ -263,7 +268,7 @@ function NavRail({
 
 // ---- Upload modal (reuses the existing UploadDropzone pipeline) -----------
 function UploadModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useReduceMotion();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -337,7 +342,7 @@ export function AppShell() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [expanded, setExpanded] = useState(readSidebarPref);
   const location = useLocation();
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useReduceMotion();
 
   function toggleSidebar() {
     setExpanded((v) => {
@@ -374,6 +379,7 @@ export function AppShell() {
       </div>
 
       <UploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
+      <Toaster />
     </div>
   );
 }

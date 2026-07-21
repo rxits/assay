@@ -9,7 +9,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip, type TooltipProps } from "recharts";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { Database, Inbox, ShieldAlert, ShieldCheck, TriangleAlert, Upload } from "lucide-react";
 import type { DatasetSummary, Sensitivity, ValueRecommendation } from "@assay/shared";
 import { useDatasets, useOverview } from "@/lib/api";
@@ -17,7 +17,7 @@ import { scoreBand, scoreTier } from "@/components/dataset/ScoreGauge";
 import { RecommendationBadge, SensitivityBadge } from "@/components/dataset/SensitivityBadge";
 import { ChartEmpty } from "@/components/charts/chart-shell";
 import { formatCompact, formatCount, relativeTime } from "@/lib/format";
-import { fadeUpItem, staggerContainer } from "@/lib/motion";
+import { fadeUpItem, staggerContainer, useReduceMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 // Reserved status hues (05 §3.2–3.3) keyed by entity — colour follows the entity,
@@ -447,7 +447,7 @@ function DashboardError({ message, onRetry }: { message: string; onRetry: () => 
 
 // ---- Page ----------------------------------------------------------------
 export function DashboardPage() {
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useReduceMotion();
   const overviewQ = useOverview();
   const datasetsQ = useDatasets({ sort: "-uploadedAt" });
   const o = overviewQ.data;

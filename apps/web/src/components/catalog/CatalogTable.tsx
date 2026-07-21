@@ -9,13 +9,13 @@
 // PROCESSING → indeterminate score cells; FAILED → dashed scores + errorMessage.
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import type { DatasetSummary } from "@assay/shared";
 import { ScoreGauge } from "@/components/dataset/ScoreGauge";
 import { RecommendationBadge, SensitivityBadge } from "@/components/dataset/SensitivityBadge";
 import { formatCompact, formatCount, relativeTime } from "@/lib/format";
-import { fadeUpItem, staggerContainer } from "@/lib/motion";
+import { fadeUpItem, staggerContainer, useReduceMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 // Header key → API sort key (04 §1.6). Only these six are sortable.
@@ -54,7 +54,7 @@ interface CatalogTableProps {
 
 export function CatalogTable({ datasets, sort, onSortChange, dimmed }: CatalogTableProps) {
   const navigate = useNavigate();
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useReduceMotion();
   const current = parseSort(sort);
   // Normalise the usage micro-bars to the busiest dataset on this page.
   const maxViews = Math.max(...datasets.map((d) => d.accessCount), 1);

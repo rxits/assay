@@ -18,14 +18,14 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion } from "motion/react";
 import type { CatalogQuery, Sensitivity, ValueRecommendation } from "@assay/shared";
 import { CatalogTable } from "@/components/catalog/CatalogTable";
 import { DatasetCard } from "@/components/catalog/DatasetCard";
 import { UploadDropzone } from "@/components/catalog/UploadDropzone";
 import { useDatasets } from "@/lib/api";
 import { formatCount } from "@/lib/format";
-import { fadeUpItem, staggerContainer } from "@/lib/motion";
+import { fadeUpItem, staggerContainer, useReduceMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const SORT_OPTIONS: { value: string; label: string }[] = [
@@ -45,7 +45,7 @@ const PAGE_SIZE = 20; // matches the API's default limit (04 §1.6)
 const GLASS_CARD = "glass rounded-xl border border-[color:var(--glass-border)]";
 
 export function CatalogPage() {
-  const reduce = useReducedMotion() ?? false;
+  const reduce = useReduceMotion();
   const [sort, setSort] = useState("-uploadedAt");
   const [sensitivity, setSensitivity] = useState<Sensitivity | "">("");
   const [recommendation, setRecommendation] = useState<ValueRecommendation | "">("");
