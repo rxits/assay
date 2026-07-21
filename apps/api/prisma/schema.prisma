@@ -1,0 +1,221 @@
+// assay — Prisma schema (PostgreSQL)
+// Canonical model, derived from docs/00-SPEC.md §6/§8. Do not rename fields/enums.
+// Storage model = compute-on-ingest: we persist per-column PROFILES, scores, and
+// capped samples — never the raw uploaded rows (see 03-DATA-MODEL.md §6).
+// String -> Postgres `text`, Json -> `jsonb`, DateTime -> `timestamptz(3)` (see §5).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Models ─────────────────────────────
+
+/// One uploaded, profiled, scored file. Aggregate root: deleting it cascades
+/// to columns, quality checks, access events, and score snapshots.
+model Dataset {
+  id                  String               @id @default(cuid())
+  name                String // user-facing; defaults to originalFilename
+  originalFilename    String
+  fileType            FileType
+  sizeBytes           Int
+  rowCount            Int
+  columnCount         Int
+  status              DatasetStatus        @default(PROCESSING)
+
+  // Scores stay null until the pipeline finishes (PROCESSING) or fails (FAILED).
+  // Null = "not computed", which is distinct from a real score of 0.
+  qualityScore        Float?
+  trustScore          Float?
+  valueScore          Float?
+  valueRecommendation ValueRecommendation?
+
+  scoreBreakdown      Json? // component sub-scores + weights, for "explain this score"
+  healthNarrative     String? // AI summary; null when ANTHROPIC_API_KEY unset (graceful)
+  sampleRows          Json? // capped preview, <=50 rows (cap enforced in app code)
+  errorMessage        String? // set only when status = FAILED
+
+  uploadedAt          DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @db.Timestamptz(3)
+
+  columns             Column[]
+  qualityChecks       QualityCheck[]
+  accessEvents        AccessEvent[]
+  scoreSnapshots      ScoreSnapshot[]
+}
+
+/// One profiled column of a dataset. `position` (0-based ordinal) is unique per dataset.
+model Column {
+  id                String             @id @default(cuid())
+  datasetId         String
+  dataset           Dataset            @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  name              String // original header
+  position          Int // 0-based ordinal
+  dataType          DataType
+  missingCount      Int
+  missingPct        Float // 0–1
+  distinctCount     Int
+  completeness      Float // 0–1 non-null ratio
+  validity          Float // 0–1 values matching inferred type
+  sampleValues      Json // <=10 example values (cap enforced in app code)
+
+  classificationTag ClassificationTag?
+
+  // Enforces the "no two columns share an ordinal" invariant AND serves the
+  // datasetId FK lookup via its leftmost prefix — so no separate @@index([datasetId]).
+  @@unique([datasetId, position])
+}
+
+/// Exactly one active sensitivity tag per column (auto-detected or manually overridden).
+model ClassificationTag {
+  id          String      @id @default(cuid())
+  columnId    String      @unique // 1:1 with Column; @unique also indexes this FK
+  column      Column      @relation(fields: [columnId], references: [id], onDelete: Cascade)
+
+  category    PiiCategory
+  sensitivity Sensitivity
+  source      TagSource
+  confidence  Float? // 0–1 match share; null for MANUAL overrides
+  overridden  Boolean     @default(false) // true once a reviewer overrides
+
+  createdAt   DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @db.Timestamptz(3)
+}
+
+/// One data-quality finding. columnId null = dataset-level check (e.g. DUPLICATE_ROWS).
+model QualityCheck {
+  id            String           @id @default(cuid())
+  datasetId     String
+  dataset       Dataset          @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  columnId      String? // soft reference (not a FK relation); null = dataset-level
+
+  checkType     QualityCheckType
+  severity      Severity
+  affectedCount Int
+  affectedPct   Float // 0–1
+  detail        String // human-readable description
+
+  createdAt     DateTime         @default(now()) @db.Timestamptz(3)
+
+  @@index([datasetId])
+}
+
+/// Append-only usage log powering Data Value. occurredAt is backdated for seeds.
+model AccessEvent {
+  id         String       @id @default(cuid())
+  datasetId  String
+  dataset    Dataset      @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  type       AccessType
+  source     AccessSource
+  occurredAt DateTime     @default(now()) @db.Timestamptz(3) // may be backdated (source = SEED)
+
+  // Workhorse: per-dataset time windows (90d / last-30d / prev-30d) for value scoring
+  // and GET /datasets/:id/usage. Also covers the datasetId FK (leftmost prefix).
+  @@index([datasetId, occurredAt])
+  // Spec-required standalone time index; supports cross-dataset recency scans.
+  @@index([occurredAt])
+}
+
+/// Optional historical scores enabling the quality/trust/value trend sparkline.
+model ScoreSnapshot {
+  id           String   @id @default(cuid())
+  datasetId    String
+  dataset      Dataset  @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  qualityScore Float
+  trustScore   Float
+  valueScore   Float
+  capturedAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  // Ordered time-series per dataset for the sparkline; covers datasetId FK (leftmost prefix).
+  @@index([datasetId, capturedAt])
+}
+
+// ───────────────────────────── Enums ──────────────────────────────
+
+enum FileType {
+  CSV
+  XLSX
+}
+
+enum DatasetStatus {
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum ValueRecommendation {
+  KEEP
+  OPTIMIZE
+  ARCHIVE
+  RETIRE
+}
+
+enum DataType {
+  STRING
+  INTEGER
+  FLOAT
+  BOOLEAN
+  DATE
+  DATETIME
+  UNKNOWN
+}
+
+enum PiiCategory {
+  EMAIL
+  PHONE
+  ID_NUMBER
+  CREDIT_CARD
+  DATE_OF_BIRTH
+  NAME
+  ADDRESS
+  IP_ADDRESS
+  POSTAL_CODE
+  NONE
+  OTHER
+}
+
+enum Sensitivity {
+  NONE
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TagSource {
+  AUTO_REGEX
+  AUTO_AI
+  MANUAL
+}
+
+enum QualityCheckType {
+  MISSING_VALUES
+  DUPLICATE_ROWS
+  INVALID_VALUES
+  TYPE_MISMATCH
+  EMPTY_COLUMN
+  DUPLICATE_HEADER
+}
+
+enum Severity {
+  INFO
+  WARNING
+  ERROR
+}
+
+enum AccessType {
+  VIEW
+  DETAIL_VIEW
+  DOWNLOAD
+}
+
+enum AccessSource {
+  SEED
+  LIVE
+}
