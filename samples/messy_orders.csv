@@ -1,0 +1,11 @@
+order_id,customer_email,amount,status,notes
+1001,alice@example.com,49.99,shipped,
+1002,bob@example.com,,pending,
+1003,,19.50,shipped,
+1004,dave@example.com,N/A,cancelled,
+1005,erin@example.com,75.00,,
+1006,frank@example.com,120.00,shipped,
+1001,alice@example.com,49.99,shipped,
+1007,grace@example.com,free,shipped,
+1008,heidi@example.com,33.25,delivered,
+1009,ivan@example.com,88.10,shipped,

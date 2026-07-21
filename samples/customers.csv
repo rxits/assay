@@ -1,0 +1,16 @@
+email,phone,full_name,country
+ada@example.com,+1-415-555-0132,Ada Lovelace,US
+grace@example.com,+1-202-555-0148,Grace Hopper,US
+linus@example.com,+358-40-5551234,Linus Torvalds,FI
+alan@example.com,+44-20-7946-0958,Alan Turing,GB
+margaret@example.com,+1-617-555-0199,Margaret Hamilton,US
+katherine@example.com,+1-757-555-0163,Katherine Johnson,US
+dennis@example.com,+1-973-555-0110,Dennis Ritchie,US
+barbara@example.com,+1-415-555-0177,Barbara Liskov,US
+donald@example.com,+1-650-555-0184,Donald Knuth,US
+tim@example.com,+44-117-555-0126,Tim Berners-Lee,GB
+guido@example.com,+31-20-555-0142,Guido van Rossum,NL
+james@example.com,+1-408-555-0155,James Gosling,CA
+bjarne@example.com,+45-33-555-0171,Bjarne Stroustrup,DK
+ken@example.com,+1-908-555-0138,Ken Thompson,US
+radia@example.com,+1-425-555-0193,Radia Perlman,
