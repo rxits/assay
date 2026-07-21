@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import request from "supertest";
 import { createApp } from "../../src/app";
 import { prisma } from "../../src/lib/prisma";
+import { MAX_UPLOAD_BYTES } from "../../src/lib/config";
 
 const CSV = [
   "email,full_name,age,signup_date",
@@ -161,5 +162,16 @@ describe("POST /api/datasets — ingestion + classification + scoring", () => {
       .expect(422);
     expect(res.body.error.code).toBe("empty_file");
     expect(await prisma.dataset.count()).toBe(0);
+  });
+
+  it("rejects an oversized file with 413 file_too_large (multer cap, no row) — 08 §6 #5", async () => {
+    // One byte over the 10 MiB cap → multer aborts with LIMIT_FILE_SIZE before the handler runs.
+    const oversized = Buffer.alloc(MAX_UPLOAD_BYTES + 1, 0x61); // filled with "a"
+    const res = await request(app)
+      .post("/api/datasets")
+      .attach("file", oversized, "big.csv")
+      .expect(413);
+    expect(res.body.error.code).toBe("file_too_large");
+    expect(await prisma.dataset.count()).toBe(0); // rejected pre-parse, never persisted
   });
 });
