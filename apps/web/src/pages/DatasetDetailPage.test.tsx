@@ -139,4 +139,31 @@ describe("DatasetDetailPage — explain this score", () => {
     expect(within(dialog).getByText("Uniqueness")).toBeInTheDocument();
     expect(within(dialog).getByText(/0\.40 × 0\.98/)).toBeInTheDocument();
   });
+
+  it("surfaces Quality's completeness and accuracy inputs inside the Trust breakdown", async () => {
+    stubDataset();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <Routes>
+        <Route path="/datasets/:id" element={<DatasetDetailPage />} />
+      </Routes>,
+      { route: "/datasets/1" },
+    );
+
+    expect(await screen.findByRole("heading", { name: "customers.csv" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /trust score.*explain/i }));
+
+    // Trust's own three weighted terms…
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Quality")).toBeInTheDocument();
+    expect(within(dialog).getByText("Consistency")).toBeInTheDocument();
+    expect(within(dialog).getByText("Classification coverage")).toBeInTheDocument();
+    // …plus the completeness/accuracy factors nested inside its Quality term, so
+    // all five named Trust factors are accounted for (display only — the row above
+    // still shows the single weighted contribution).
+    expect(within(dialog).getByText("Quality inputs")).toBeInTheDocument();
+    expect(within(dialog).getByText("Completeness")).toBeInTheDocument();
+    expect(within(dialog).getByText("Accuracy (validity)")).toBeInTheDocument();
+    expect(within(dialog).getByText("0.45 × 0.99")).toBeInTheDocument();
+  });
 });

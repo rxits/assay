@@ -143,7 +143,7 @@ function RecTooltip({ active, payload }: TooltipProps<number, string>) {
   const row = payload[0]?.payload as { key: string; value: number; pct: number } | undefined;
   if (!row) return null;
   return (
-    <div className="rounded-md border border-border bg-popover px-2.5 py-1.5 text-[13px] shadow-md">
+    <div className="rounded-lg border border-[color:var(--glass-border)] bg-popover px-2.5 py-1.5 text-[13px] shadow-[var(--glass-shadow)]">
       <span className="font-medium text-foreground">{row.key}</span>
       <span className="tabular-nums text-muted-foreground"> · {row.value} ({Math.round(row.pct * 100)}%)</span>
     </div>

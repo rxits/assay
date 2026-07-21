@@ -21,7 +21,7 @@ function TypeTooltip({ active, payload }: TooltipProps<number, string>) {
   const row = payload[0]?.payload as { type: string; count: number } | undefined;
   if (!row) return null;
   return (
-    <div className="rounded-md border border-border bg-popover px-2.5 py-1.5 shadow-md">
+    <div className="rounded-lg border border-[color:var(--glass-border)] bg-popover px-2.5 py-1.5 shadow-[var(--glass-shadow)]">
       <span className="text-[13px] text-foreground">
         <span className="font-medium">{row.type}</span>
         <span className="tabular-nums text-muted-foreground">

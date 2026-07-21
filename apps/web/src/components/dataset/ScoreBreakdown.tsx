@@ -43,6 +43,19 @@ interface Row {
   contribution: number;
 }
 
+/**
+ * Nested inputs surfaced beneath one row. Trust folds Quality in as a single
+ * weighted term, which hides the completeness and accuracy factors Trust is
+ * defined by; these sub-rows make them visible. Presentation only — no formula
+ * or weight is touched, so the parent row still owns the arithmetic.
+ */
+export interface SubRows {
+  /** The `inputs` key whose row these sit under (e.g. "quality"). */
+  under: string;
+  caption: string;
+  items: { label: string; value: number }[];
+}
+
 // Every sub-score input is a 0–1 ratio (04 §2.4), so contribution = 100·weight·input
 // (points) uniformly, and the rows sum to ≈ score (06 §4–§6).
 function toRows(entry: Entry): Row[] {
@@ -55,7 +68,19 @@ function toRows(entry: Entry): Row[] {
   });
 }
 
-function Body({ label, score, entry, headingId }: { label: string; score: number; entry: Entry; headingId: string }) {
+function Body({
+  label,
+  score,
+  entry,
+  headingId,
+  subRows,
+}: {
+  label: string;
+  score: number;
+  entry: Entry;
+  headingId: string;
+  subRows?: SubRows;
+}) {
   const rows = toRows(entry);
   const max = Math.max(...rows.map((r) => r.contribution), 1);
   const tier = scoreTier(score);
@@ -102,6 +127,24 @@ function Body({ label, score, entry, headingId }: { label: string; score: number
               {r.label}: weight {r.weight.toFixed(2)} times {r.input.toFixed(2)} equals{" "}
               {r.contribution.toFixed(1)} points.
             </span>
+
+            {subRows?.under === r.key && (
+              // Nested inputs of the term above — indented off a hairline so they
+              // read as belonging to it, never as a fourth weighted row.
+              <div className="mt-1 border-l border-border pl-2.5">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+                  {subRows.caption}
+                </span>
+                <ul className="mt-0.5 flex flex-col gap-0.5">
+                  {subRows.items.map((s) => (
+                    <li key={s.label} className="flex items-baseline justify-between gap-2 text-[12px]">
+                      <span className="text-muted-foreground">{s.label}</span>
+                      <span className="tabular-nums text-foreground">{s.value.toFixed(2)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -119,9 +162,11 @@ interface ScoreBreakdownProps {
   status?: DatasetStatus;
   /** The score's breakdown entry (null when FAILED / not yet scored). */
   entry: Entry | null;
+  /** Optional nested inputs to surface under one row (Trust → Quality's factors). */
+  subRows?: SubRows;
 }
 
-export function ScoreBreakdown({ label, score, status, entry }: ScoreBreakdownProps) {
+export function ScoreBreakdown({ label, score, status, entry, subRows }: ScoreBreakdownProps) {
   const [open, setOpen] = useState(false);
   const headingId = useId();
 
@@ -148,10 +193,10 @@ export function ScoreBreakdown({ label, score, status, entry }: ScoreBreakdownPr
           align="center"
           sideOffset={8}
           collisionPadding={12}
-          className="z-50 w-80 max-w-[320px] rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-md outline-none"
+          className="z-50 w-80 max-w-[320px] rounded-xl border border-[color:var(--glass-border)] bg-popover p-4 text-popover-foreground shadow-[var(--glass-shadow)] outline-none"
         >
           {entry && score != null ? (
-            <Body label={label} score={score} entry={entry} headingId={headingId} />
+            <Body label={label} score={score} entry={entry} headingId={headingId} subRows={subRows} />
           ) : (
             <p id={headingId} className="text-[13px] text-muted-foreground">
               {label} breakdown is unavailable for this dataset.

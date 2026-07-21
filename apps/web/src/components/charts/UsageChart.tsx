@@ -25,7 +25,7 @@ function UsageTooltip({ active, payload, label }: TooltipProps<number, string>) 
   if (!active || !payload?.length) return null;
   const value = payload[0]?.value ?? 0;
   return (
-    <div className="rounded-md border border-border bg-popover px-2.5 py-1.5 shadow-md">
+    <div className="rounded-lg border border-[color:var(--glass-border)] bg-popover px-2.5 py-1.5 shadow-[var(--glass-shadow)]">
       <div className="tabular-nums text-[13px] font-medium text-foreground">
         {formatCompact(Number(value))} {Number(value) === 1 ? "view" : "views"}
       </div>
@@ -90,13 +90,13 @@ export function UsageChart({ usage, variant = "full", height }: UsageChartProps)
               <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeWidth={1} />
+          <CartesianGrid vertical={false} stroke="var(--chart-grid)" strokeWidth={1} />
           <XAxis
             dataKey="date"
             tickFormatter={formatDateShort}
             tick={AXIS_TICK}
             tickLine={false}
-            axisLine={{ stroke: "hsl(var(--border))" }}
+            axisLine={{ stroke: "var(--chart-axis)" }}
             minTickGap={40}
           />
           <YAxis
@@ -109,7 +109,7 @@ export function UsageChart({ usage, variant = "full", height }: UsageChartProps)
           />
           <Tooltip
             content={<UsageTooltip />}
-            cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }}
+            cursor={{ stroke: "var(--chart-axis)", strokeWidth: 1 }}
           />
           <Area
             type="monotone"

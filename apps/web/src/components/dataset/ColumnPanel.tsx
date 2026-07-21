@@ -25,7 +25,7 @@ const SENSITIVITIES: Sensitivity[] = ["NONE", "LOW", "MEDIUM", "HIGH"];
 const NUMERIC = new Set(["INTEGER", "FLOAT"]);
 
 const SELECT_CLASS =
-  "rounded-md border border-input bg-card px-2 py-1.5 text-[13px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "rounded-lg border border-[color:var(--glass-border)] bg-background/50 px-2 py-1.5 text-[13px] text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring";
 
 export function ColumnPanel({
   datasetId,
@@ -60,13 +60,13 @@ export function ColumnPanel({
   }
 
   return (
-    <div className="border-t border-border bg-muted/30 px-4 py-4">
+    <div className="border-t border-[color:var(--glass-border)] bg-background/30 px-4 py-4">
       {/* Header — identity + current classification. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="font-mono text-[14px] font-medium text-foreground">{column.name}</span>
         <TypePill dataType={column.dataType} />
         <span className="text-[12px] text-muted-foreground">position {column.position}</span>
-        <span className="mx-1 h-3 w-px bg-border" aria-hidden="true" />
+        <span className="mx-1 h-3 w-px bg-[color:var(--glass-border)]" aria-hidden="true" />
         <SensitivityBadge level={tag?.sensitivity ?? null} size="sm" overridden={tag?.overridden} />
         {tag && (
           <span className="text-[12px] text-muted-foreground">
@@ -77,7 +77,7 @@ export function ColumnPanel({
       </div>
 
       {/* Manual override — 05 §4.6 / 04 §2.5. */}
-      <div className="mt-3 flex flex-wrap items-end gap-3 rounded-md border border-border bg-card p-3">
+      <div className="mt-3 flex flex-wrap items-end gap-3 rounded-lg border border-[color:var(--glass-border)] bg-background/40 p-3">
         <label className="flex flex-col gap-1 text-[12px] text-muted-foreground">
           Category
           <select className={SELECT_CLASS} value={category} onChange={(e) => setCategory(e.target.value as PiiCategory)}>
@@ -99,7 +99,7 @@ export function ColumnPanel({
           type="button"
           onClick={apply}
           disabled={override.isPending}
-          className="rounded-md bg-primary px-3 py-2 text-[13px] font-medium text-primary-foreground outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className="rounded-lg bg-primary px-3 py-2 text-[13px] font-medium text-primary-foreground outline-none transition-[opacity,transform] duration-150 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50"
         >
           {override.isPending ? "Saving…" : "Reclassify"}
         </button>
@@ -184,7 +184,7 @@ function SampleValues({ values }: { values: unknown[] }) {
       {values.slice(0, 8).map((v, i) => (
         <li
           key={i}
-          className="max-w-[16rem] truncate rounded-sm border border-border bg-card px-1.5 py-0.5 font-mono text-[12px] text-foreground"
+          className="max-w-[16rem] truncate rounded-md border border-[color:var(--glass-border)] bg-background/40 px-1.5 py-0.5 font-mono text-[12px] text-foreground"
           title={String(v)}
         >
           {String(v)}

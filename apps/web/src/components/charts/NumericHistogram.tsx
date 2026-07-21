@@ -57,7 +57,7 @@ function HistTooltip({ active, payload }: TooltipProps<number, string>) {
   const row = payload[0]?.payload as Bin | undefined;
   if (!row) return null;
   return (
-    <div className="rounded-md border border-border bg-popover px-2.5 py-1.5 shadow-md">
+    <div className="rounded-lg border border-[color:var(--glass-border)] bg-popover px-2.5 py-1.5 shadow-[var(--glass-shadow)]">
       <div className="text-[13px] text-foreground">{row.label}</div>
       <div className="tabular-nums text-[12px] text-muted-foreground">
         {row.count} {row.count === 1 ? "value" : "values"}
@@ -76,12 +76,12 @@ export function NumericHistogram({ values, height = 140 }: { values: unknown[]; 
     <div role="img" aria-label={`Value distribution across ${bins.length} bins from ${nums.length} samples`}>
       <ResponsiveContainer width="100%" height={height}>
         <BarChart data={bins} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
-          <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeWidth={1} />
+          <CartesianGrid vertical={false} stroke="var(--chart-grid)" strokeWidth={1} />
           <XAxis
             dataKey="label"
             tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
             tickLine={false}
-            axisLine={{ stroke: "hsl(var(--border))" }}
+            axisLine={{ stroke: "var(--chart-axis)" }}
             interval={0}
           />
           <YAxis

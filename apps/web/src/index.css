@@ -46,6 +46,13 @@
     --score-band-4: #104281; /* 90–100 */
     --gauge-track: #cde2fb; /* ramp step-100 (05 §3.1) */
 
+    /* Chart chrome (R2) — grid + axis hairlines. Separate from --border because
+       --border is tuned for opaque panel edges; on the dark charcoal chart canvas
+       it disappears, so each theme sets a hairline that reads against its surface
+       while staying recessive behind the marks (dataviz: chrome never competes). */
+    --chart-grid: hsl(var(--border));
+    --chart-axis: hsl(var(--border));
+
     /* Status hues — 05 §3.2–3.4. Mode-invariant; always paired with icon+word. */
     --status-good: #0ca30c;
     --status-warning: #fab219;
@@ -100,6 +107,11 @@
     --glass-blur: 16px;
     --glass-shadow: 0 16px 46px -18px rgba(0, 0, 0, 0.6);
     --spotlight: hsl(var(--primary) / 0.08);
+
+    /* Chart chrome — dark. Lifted off the charcoal canvas (a cool-white alpha),
+       axis a touch stronger than grid so the baseline still anchors the plot. */
+    --chart-grid: hsl(210 30% 88% / 0.09);
+    --chart-axis: hsl(210 30% 88% / 0.18);
 
     /* Score ramp — dark mode (05 §3.1): clamped so even a low score stays ≥2:1. */
     --score-band-0: #184f95;

@@ -145,7 +145,13 @@ export function CatalogPage() {
         )}
 
         <div className="ml-auto">
-          <Filter icon={ArrowDownUp} label="Sort" value={sort} active onChange={reset(setSort)}>
+          <Filter
+            icon={ArrowDownUp}
+            label="Sort"
+            value={sort}
+            active={sort !== SORT_OPTIONS[0]?.value}
+            onChange={reset(setSort)}
+          >
             {SORT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
@@ -207,7 +213,7 @@ function Filter({
   icon: LucideIcon;
   label: string;
   value: string;
-  /** Tints the control when it is narrowing the list (or always, for Sort). */
+  /** Tints the control when it is doing something — filtering, or a non-default sort. */
   active?: boolean;
   onChange: (v: string) => void;
   children: ReactNode;
