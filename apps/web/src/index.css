@@ -51,29 +51,55 @@
     --status-warning: #fab219;
     --status-critical: #d03b3b;
     --status-muted: #898781;
+
+    /* Premium glass chrome (R1) — translucent surfaces layered over the canvas.
+       Light theme: a bright frosted panel with a soft white top-highlight. */
+    --glass-surface: hsl(0 0% 100% / 0.72);
+    --glass-border: hsl(220 24% 18% / 0.1);
+    --glass-highlight: hsl(0 0% 100% / 0.65);
+    --glass-blur: 14px;
+    --glass-shadow: 0 12px 34px -14px rgba(11, 11, 11, 0.22);
+    /* Cursor spotlight tint (R1) — restrained brand-blue glow, never a colour blob. */
+    --spotlight: hsl(var(--primary) / 0.05);
+
+    /* Spring motion tokens (R1) — mirror lib/motion.ts so CSS-driven transitions
+       (sidebar width, nav wash) match the JS springs' character. */
+    --ease-spring: cubic-bezier(0.34, 1.32, 0.5, 1);
   }
 
   .dark {
     color-scheme: dark; /* native <select> dropdowns + scrollbars follow dark mode */
-    --background: 0 0% 5%;
-    --foreground: 0 0% 100%;
-    --card: 60 2% 10%;
-    --card-foreground: 0 0% 100%;
-    --popover: 60 2% 10%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 213 77% 56%;
-    --primary-foreground: 0 0% 4%;
-    --secondary: 60 3% 14%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 60 3% 14%;
-    --muted-foreground: 55 9% 74%;
-    --accent: 214 32% 17%;
-    --accent-foreground: 0 0% 100%;
+    /* R1 premium retheme: warm-grey → cool deep charcoal (Linear/Raycast). The
+       validated data science below (primary, score ramp, status hues) is kept
+       exactly; only the chrome neutrals shift cool + darker for the glass canvas. */
+    --background: 220 20% 4.5%; /* deep charcoal canvas ~#0a0b0d */
+    --foreground: 210 20% 98%;
+    --card: 220 15% 9%; /* opaque fallback beneath the glass surfaces */
+    --card-foreground: 210 20% 98%;
+    --popover: 220 16% 10%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 213 82% 58%; /* refined brand blue — a touch more vivid on charcoal */
+    --primary-foreground: 0 0% 4%; /* near-black on light blue = 6.1:1 (white would only reach 3.4:1) */
+    --secondary: 220 12% 14%;
+    --secondary-foreground: 210 20% 98%;
+    --muted: 220 12% 13%;
+    --muted-foreground: 216 14% 70%;
+    --accent: 214 46% 18%; /* blue-tinted hover wash */
+    --accent-foreground: 210 20% 98%;
     --destructive: 0 61% 52%;
     --destructive-foreground: 0 0% 100%;
-    --border: 60 2% 17%;
-    --input: 60 2% 17%;
-    --ring: 213 77% 56%;
+    --border: 220 13% 15%;
+    --input: 220 13% 15%;
+    --ring: 213 88% 62%;
+
+    /* Glass chrome — dark. Panels lift off the canvas by translucency + a faint
+       inner top-highlight + a hairline cool-white border, never by heavy shadow. */
+    --glass-surface: hsl(220 18% 9% / 0.66);
+    --glass-border: hsl(210 40% 96% / 0.08);
+    --glass-highlight: hsl(0 0% 100% / 0.055);
+    --glass-blur: 16px;
+    --glass-shadow: 0 16px 46px -18px rgba(0, 0, 0, 0.6);
+    --spotlight: hsl(var(--primary) / 0.08);
 
     /* Score ramp — dark mode (05 §3.1): clamped so even a low score stays ≥2:1. */
     --score-band-0: #184f95;
@@ -104,6 +130,39 @@
 }
 
 @layer components {
+  /* Glass material (R1) — the premium chrome primitive. Translucent surface +
+     backdrop blur + a 1px inner top-highlight for the "lit edge" read + a soft
+     ambient shadow. Borders are applied per-element (border-b on the bar,
+     border-r on the rail, full border on cards) via border-[color:var(--glass-border)]
+     so one material composes into every surface. Falls back to the opaque --card
+     where backdrop-filter is unsupported. */
+  .glass {
+    position: relative;
+    background: var(--glass-surface);
+    box-shadow: var(--glass-shadow);
+  }
+  .glass::before {
+    /* inner top-highlight — the single hairline that sells the glass */
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 1px 0 0 var(--glass-highlight);
+    pointer-events: none;
+  }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .glass {
+      background: var(--glass-surface);
+      -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+      backdrop-filter: blur(var(--glass-blur)) saturate(150%);
+    }
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass {
+      background: hsl(var(--card));
+    }
+  }
+
   /* A thin track whose primary-coloured segment sweeps across — used for
      PROCESSING score cells and the upload "Profiling…" state. */
   .assay-indeterminate {
