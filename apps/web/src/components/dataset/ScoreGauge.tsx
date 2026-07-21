@@ -31,8 +31,8 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(100, n));
 }
 
-/** 0–24 → 0 … 90–100 → 4 (05 §3.1 bands). */
-function scoreBand(score: number): 0 | 1 | 2 | 3 | 4 {
+/** 0–24 → 0 … 90–100 → 4 (05 §3.1 bands). Exported: the breakdown bars reuse the ramp. */
+export function scoreBand(score: number): 0 | 1 | 2 | 3 | 4 {
   if (score < 25) return 0;
   if (score < 50) return 1;
   if (score < 75) return 2;
@@ -41,8 +41,8 @@ function scoreBand(score: number): 0 | 1 | 2 | 3 | 4 {
 }
 
 type Tone = "good" | "warning" | "critical";
-/** Valence ("is this good?") — rides the tier chip, NOT the ring (05 §3.1). */
-function tierFor(score: number): { word: string; tone: Tone } {
+/** Valence ("is this good?") — rides the tier chip, NOT the ring (05 §3.1). Shared with the breakdown header. */
+export function scoreTier(score: number): { word: string; tone: Tone } {
   if (score >= 80) return { word: "Good", tone: "good" };
   if (score >= 60) return { word: "Fair", tone: "warning" };
   return { word: "Poor", tone: "critical" };
@@ -155,7 +155,7 @@ export function ScoreGauge({
   const failed = status === "FAILED";
   const animate = !prefersReducedMotion() && !processing && score != null;
   const numeral = score == null || failed ? "—" : String(Math.round(score));
-  const tier = score != null && !failed ? tierFor(score) : null;
+  const tier = score != null && !failed ? scoreTier(score) : null;
   const ariaLabel =
     score == null || failed
       ? `${label} score unavailable`
