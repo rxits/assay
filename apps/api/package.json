@@ -15,6 +15,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.3",
     "@assay/shared": "workspace:*",
     "@prisma/client": "^5.22.0",
     "cors": "^2.8.5",

@@ -13,6 +13,7 @@ import { profileDataset, type ProfiledColumn } from "../domain/profile";
 import { classifyColumn } from "../domain/classification";
 import { detectQualityChecks } from "../domain/quality";
 import { scoreProfiledDataset } from "./scoring";
+import { anthropic, classifyColumnAI, generateHealthNarrative } from "../lib/anthropic";
 import { ApiHttpError } from "../lib/errors";
 import { toDatasetSummary } from "./serialize";
 
@@ -78,12 +79,13 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
     const profile = profileDataset(parsed.headers, parsed.rows);
     const sampleRows = buildSampleRows(parsed.headers, parsed.rows);
 
+    // Classification (regex, refined by Claude for ambiguous columns only when a key is set).
     // Every column ends classified (incl. explicit NONE, 07 §9) → ClassificationCoverage 1.0.
-    const tags = classifyColumns(profile.columns);
+    const tags = await classifyColumns(profile.columns);
     const checks = detectQualityChecks(profile);
     // No AccessEvents yet → Value is low/RETIRE by design (06 §8, R10); Phase 3 recomputes on read.
     const scored = scoreProfiledDataset(profile, true, [], new Date());
-    const healthNarrative: string | null = null; // AI narrative wired in Task 2.5
+    const healthNarrative = await generateHealthNarrative(buildNarrativeSummary(name, profile, scored, tags));
 
     await prisma.$transaction(async (tx) => {
       await tx.column.createMany({
@@ -166,13 +168,39 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
   }
 }
 
-// Regex classification per column (07 §3–§5). Every column resolves to a tag, incl. explicit
-// NONE. Claude refinement for ambiguous columns is layered on in Task 2.5.
-function classifyColumns(columns: ProfiledColumn[]): DraftTag[] {
-  return columns.map((c) => {
-    const r = classifyColumn({ header: c.name, sampleValues: c.sampleValues });
-    return { position: c.position, category: r.category, sensitivity: r.sensitivity, confidence: r.confidence, source: r.source };
-  });
+// Regex classification per column, refined by Claude Haiku only for genuinely-ambiguous
+// columns AND only when a key is configured (07 §6.1). No key ⇒ pure regex (the tested default).
+async function classifyColumns(columns: ProfiledColumn[]): Promise<DraftTag[]> {
+  return Promise.all(
+    columns.map(async (c): Promise<DraftTag> => {
+      const r = classifyColumn({ header: c.name, sampleValues: c.sampleValues });
+      if (r.needsAi && anthropic) {
+        const ai = await classifyColumnAI(c.name, c.sampleValues);
+        if (ai) {
+          return { position: c.position, category: ai.category, sensitivity: ai.sensitivity, confidence: ai.confidence, source: "AUTO_AI" };
+        }
+      }
+      return { position: c.position, category: r.category, sensitivity: r.sensitivity, confidence: r.confidence, source: r.source };
+    }),
+  );
+}
+
+// Compact, PII-free profile summary for the health narrative (07 §6.6). Never raw rows.
+function buildNarrativeSummary(
+  name: string,
+  profile: ReturnType<typeof profileDataset>,
+  scored: ReturnType<typeof scoreProfiledDataset>,
+  tags: DraftTag[],
+): string {
+  const sensitive = tags.filter((t) => t.sensitivity !== "NONE");
+  const cats = [...new Set(sensitive.map((t) => t.category))].join(", ");
+  return (
+    `${name} — ${profile.rowCount} rows × ${profile.columns.length} cols. ` +
+    `Quality ${Math.round(scored.qualityScore)}, Trust ${Math.round(scored.trustScore)}, ` +
+    `Value ${Math.round(scored.valueScore)} (${scored.valueRecommendation}). ` +
+    `Duplicate rows: ${profile.duplicateRowCount}. ` +
+    `Sensitive columns: ${sensitive.length}${cats ? ` (${cats})` : ""}.`
+  );
 }
 
 function buildSampleRows(headers: string[], rows: (string | null)[][]): Record<string, unknown>[] {
