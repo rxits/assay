@@ -19,8 +19,9 @@ export interface ClassifyResult {
   needsAi: boolean; // true = ambiguous; Phase 2B may refine with Claude (category is a best-guess)
 }
 
-// Default sensitivity per category (07 §1 / 00-SPEC §8).
-const DEFAULT_SENSITIVITY: Record<PiiCategory, Sensitivity> = {
+// Default sensitivity per category (07 §1 / 00-SPEC §8). Exported so the AI adapter
+// (services/lib) and manual-override path derive the same default without duplicating the map.
+export const DEFAULT_SENSITIVITY: Record<PiiCategory, Sensitivity> = {
   EMAIL: "HIGH",
   PHONE: "HIGH",
   ID_NUMBER: "HIGH",

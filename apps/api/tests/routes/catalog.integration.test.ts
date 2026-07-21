@@ -1,6 +1,6 @@
-// Catalog read endpoints (04 §2.3–2.4) against real Prisma. Phase 1: detail
-// returns columns with null tags, empty qualityChecks, null scoreBreakdown, and
-// an empty usage series.
+// Catalog read endpoints (04 §2.3–2.4) against real Prisma. Phase 2B: detail
+// returns columns with resolved tags, a persisted scoreBreakdown, quality checks,
+// and (AI disabled locally) a null healthNarrative; usage stays an empty Phase-3 series.
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import request from "supertest";
 import { createApp } from "../../src/app";
@@ -61,17 +61,19 @@ describe("GET /api/datasets — catalog list", () => {
 });
 
 describe("GET /api/datasets/:id — detail", () => {
-  it("returns columns with Phase-1 empty scoring/classification/usage shape", async () => {
+  it("returns columns with resolved tags, a score breakdown, and quality checks", async () => {
     const id = await upload(CSV_A, "customers.csv");
     const res = await request(app).get(`/api/datasets/${id}`).expect(200);
     const d = res.body.data;
 
     expect(d.columns.map((c: { name: string }) => c.name)).toEqual(["email", "age"]);
-    expect(d.columns[0].classificationTag).toBeNull();
+    expect(d.columns.find((c: { name: string }) => c.name === "email").classificationTag.category).toBe("EMAIL");
     expect(d.columns.find((c: { name: string }) => c.name === "age").dataType).toBe("INTEGER");
-    expect(d.qualityChecks).toEqual([]);
-    expect(d.scoreBreakdown).toBeNull();
-    expect(d.healthNarrative).toBeNull();
+    // Clean 2-row dataset → no quality findings, but the shape is populated, not stubbed.
+    expect(Array.isArray(d.qualityChecks)).toBe(true);
+    expect(d.scoreBreakdown.quality.score).toBeCloseTo(100, 1);
+    expect(d.scoreBreakdown.trust.inputs.classificationCoverage).toBe(1);
+    expect(d.healthNarrative).toBeNull(); // AI disabled locally
     expect(d.usage.series).toEqual([]);
     expect(d.usage.summary.lastAccessedAt).toBeNull();
     expect(d.sampleRows).toHaveLength(2);

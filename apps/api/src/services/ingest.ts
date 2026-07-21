@@ -1,14 +1,18 @@
 // Ingestion pipeline (04 §2.2): validate -> create Dataset(PROCESSING) -> parse
-// -> profile -> persist Columns + capped sampleRows -> READY. Empty/0-row/0-col/
-// unparseable files are rejected up-front (4xx, no row). A fault *after* the row
-// exists (e.g. a non-rectangular file) flips the dataset to FAILED at 201 — a
-// broken dataset is a catalogued first-class citizen, never a 500.
-// Classification, quality checks, and scoring are Phase 2 — not run here.
+// -> profile -> classify -> quality checks -> score -> persist Columns + tags + checks
+// + scores + capped sampleRows -> READY. Empty/0-row/0-col/unparseable files are rejected
+// up-front (4xx, no row). A fault *after* the row exists (e.g. a non-rectangular file) flips
+// the dataset to FAILED at 201 with null scores (R1) — a broken dataset is a catalogued
+// first-class citizen, never a 500. Classification/scoring/narrative run here (Phase 2B);
+// the AI layer degrades to regex-only when ANTHROPIC_API_KEY is unset (07 §6, R8).
 import type { Prisma } from "@prisma/client";
-import type { DatasetSummary, FileType } from "@assay/shared";
+import type { DatasetSummary, FileType, PiiCategory, Sensitivity, TagSource } from "@assay/shared";
 import { prisma } from "../lib/prisma";
 import { parseFile, type ParsedFile } from "../lib/parsers";
-import { profileDataset } from "../domain/profile";
+import { profileDataset, type ProfiledColumn } from "../domain/profile";
+import { classifyColumn } from "../domain/classification";
+import { detectQualityChecks } from "../domain/quality";
+import { scoreProfiledDataset } from "./scoring";
 import { ApiHttpError } from "../lib/errors";
 import { toDatasetSummary } from "./serialize";
 
@@ -20,6 +24,14 @@ export interface IngestInput {
   fileType: FileType;
   sizeBytes: number;
   name?: string | undefined;
+}
+
+interface DraftTag {
+  position: number;
+  category: PiiCategory;
+  sensitivity: Sensitivity;
+  confidence: number | null;
+  source: TagSource;
 }
 
 export async function ingestDataset(input: IngestInput): Promise<DatasetSummary> {
@@ -66,8 +78,15 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
     const profile = profileDataset(parsed.headers, parsed.rows);
     const sampleRows = buildSampleRows(parsed.headers, parsed.rows);
 
-    await prisma.$transaction([
-      prisma.column.createMany({
+    // Every column ends classified (incl. explicit NONE, 07 §9) → ClassificationCoverage 1.0.
+    const tags = classifyColumns(profile.columns);
+    const checks = detectQualityChecks(profile);
+    // No AccessEvents yet → Value is low/RETIRE by design (06 §8, R10); Phase 3 recomputes on read.
+    const scored = scoreProfiledDataset(profile, true, [], new Date());
+    const healthNarrative: string | null = null; // AI narrative wired in Task 2.5
+
+    await prisma.$transaction(async (tx) => {
+      await tx.column.createMany({
         data: profile.columns.map((c) => ({
           datasetId: dataset.id,
           name: c.name,
@@ -80,15 +99,62 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
           validity: c.validity,
           sampleValues: c.sampleValues as Prisma.InputJsonValue,
         })),
-      }),
-      prisma.dataset.update({
-        where: { id: dataset.id },
-        data: { status: "READY", sampleRows: sampleRows as unknown as Prisma.InputJsonValue },
-      }),
-    ]);
+      });
 
-    return toDatasetSummary(await prisma.dataset.findUniqueOrThrow({ where: { id: dataset.id } }));
+      // createMany returns no ids; map columnPosition -> Column.id for tags + checks.
+      const created = await tx.column.findMany({
+        where: { datasetId: dataset.id },
+        select: { id: true, position: true },
+      });
+      const posToId = new Map(created.map((c) => [c.position, c.id]));
+
+      await tx.classificationTag.createMany({
+        data: tags.map((t) => ({
+          columnId: posToId.get(t.position)!,
+          category: t.category,
+          sensitivity: t.sensitivity,
+          source: t.source,
+          confidence: t.confidence,
+          overridden: false,
+        })),
+      });
+
+      if (checks.length > 0) {
+        await tx.qualityCheck.createMany({
+          data: checks.map((ck) => ({
+            datasetId: dataset.id,
+            columnId: ck.columnPosition == null ? null : (posToId.get(ck.columnPosition) ?? null),
+            checkType: ck.checkType,
+            severity: ck.severity,
+            affectedCount: ck.affectedCount,
+            affectedPct: ck.affectedPct,
+            detail: ck.detail,
+          })),
+        });
+      }
+
+      await tx.dataset.update({
+        where: { id: dataset.id },
+        data: {
+          status: "READY",
+          sampleRows: sampleRows as unknown as Prisma.InputJsonValue,
+          qualityScore: scored.qualityScore,
+          trustScore: scored.trustScore,
+          valueScore: scored.valueScore,
+          valueRecommendation: scored.valueRecommendation,
+          scoreBreakdown: scored.scoreBreakdown as unknown as Prisma.InputJsonValue,
+          healthNarrative,
+        },
+      });
+    });
+
+    const ready = await prisma.dataset.findUniqueOrThrow({
+      where: { id: dataset.id },
+      include: { columns: { include: { classificationTag: { select: { sensitivity: true } } } } },
+    });
+    return toDatasetSummary(ready, ready.columns);
   } catch (err) {
+    // R1: a fault after the row exists → FAILED with null score columns (scores were never set).
     const failed = await prisma.dataset.update({
       where: { id: dataset.id },
       data: {
@@ -98,6 +164,15 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
     });
     return toDatasetSummary(failed);
   }
+}
+
+// Regex classification per column (07 §3–§5). Every column resolves to a tag, incl. explicit
+// NONE. Claude refinement for ambiguous columns is layered on in Task 2.5.
+function classifyColumns(columns: ProfiledColumn[]): DraftTag[] {
+  return columns.map((c) => {
+    const r = classifyColumn({ header: c.name, sampleValues: c.sampleValues });
+    return { position: c.position, category: r.category, sensitivity: r.sensitivity, confidence: r.confidence, source: r.source };
+  });
 }
 
 function buildSampleRows(headers: string[], rows: (string | null)[][]): Record<string, unknown>[] {

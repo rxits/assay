@@ -1,7 +1,9 @@
 // Supertest against the real Express app + real Prisma (throwaway/dev test DB,
-// truncated per test). Based on 08 §9, adapted to Phase 1: scoring and
-// classification land in Phase 2, so this asserts ingestion + discovery only
-// (counts, status, column types) and R4's 415 for a bad file type.
+// truncated per test). Phase 2B reality (08 §9): ingestion now classifies, quality-checks,
+// and scores — so this asserts scores present, PII tags, populated checks, and that the
+// AI layer is disabled (no ANTHROPIC_API_KEY) → regex resolves, healthNarrative null.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import request from "supertest";
 import { createApp } from "../../src/app";
@@ -14,6 +16,9 @@ const CSV = [
   "alan@example.com,Alan Turing,41,2023-03-10",
   "ada@example.com,Ada Lovelace,36,2023-01-15", // duplicates row 1
 ].join("\n");
+
+const sample = (name: string): Buffer =>
+  readFileSync(fileURLToPath(new URL(`../../../../samples/${name}`, import.meta.url)));
 
 const app = createApp();
 
@@ -29,8 +34,8 @@ beforeEach(async () => {
   );
 });
 
-describe("POST /api/datasets — ingestion + discovery", () => {
-  it("ingests a CSV: 201 READY with correct counts and inferred column types", async () => {
+describe("POST /api/datasets — ingestion + classification + scoring", () => {
+  it("ingests a CSV: 201 READY with scores, PII tags, and quality checks", async () => {
     const res = await request(app)
       .post("/api/datasets")
       .attach("file", Buffer.from(CSV), "customers.csv")
@@ -41,22 +46,80 @@ describe("POST /api/datasets — ingestion + discovery", () => {
     expect(ds.rowCount).toBe(4);
     expect(ds.columnCount).toBe(4);
     expect(ds.fileType).toBe("CSV");
-    expect(ds.qualityScore).toBeNull(); // scoring is Phase 2
+    // Completeness=Validity=1.0, 1 duplicate row → Uniqueness=0.75.
+    // Quality = 100·(0.40·1 + 0.30·1 + 0.30·0.75) = 92.5.
+    expect(ds.qualityScore).toBeCloseTo(92.5, 1);
+    expect(ds.trustScore).toBeGreaterThan(0);
+    expect(ds.piiColumnCount).toBeGreaterThanOrEqual(1); // email, full_name
 
-    // Columns persisted with the inferred types; signup_date is a DATE, not DOB.
+    // Every column is now classified (incl. explicit NONE) — coverage 1.0.
+    expect(await prisma.classificationTag.count()).toBe(4);
+
     const columns = await prisma.column.findMany({
       where: { datasetId: ds.id },
       orderBy: { position: "asc" },
+      include: { classificationTag: true },
     });
     expect(columns.map((c) => c.name)).toEqual(["email", "full_name", "age", "signup_date"]);
-    expect(columns.find((c) => c.name === "email")?.dataType).toBe("STRING");
-    expect(columns.find((c) => c.name === "age")?.dataType).toBe("INTEGER");
-    expect(columns.find((c) => c.name === "signup_date")?.dataType).toBe("DATE");
-    // No classification tags in Phase 1.
-    expect(await prisma.classificationTag.count()).toBe(0);
+    const email = columns.find((c) => c.name === "email")!;
+    expect(email.dataType).toBe("STRING");
+    expect(email.classificationTag?.category).toBe("EMAIL");
+    expect(email.classificationTag?.sensitivity).toBe("HIGH");
+    expect(email.classificationTag?.source).toBe("AUTO_REGEX"); // AI disabled locally
+
+    // signup_date is a DATE but NOT date-of-birth → NONE (false-positive guard).
+    const date = columns.find((c) => c.name === "signup_date")!;
+    expect(date.dataType).toBe("DATE");
+    expect(date.classificationTag?.category).toBe("NONE");
+
+    // Quality checks are populated (the duplicate row is detected).
+    const checks = await prisma.qualityCheck.findMany({ where: { datasetId: ds.id } });
+    expect(checks.some((c) => c.checkType === "DUPLICATE_ROWS")).toBe(true);
   });
 
-  it("uses a provided name over the filename and caps the sample preview", async () => {
+  it("scores customers.csv high with EMAIL/PHONE PII, and messy_orders.csv visibly lower", async () => {
+    const customers = (
+      await request(app).post("/api/datasets").attach("file", sample("customers.csv"), "customers.csv").expect(201)
+    ).body.data;
+    const messy = (
+      await request(app).post("/api/datasets").attach("file", sample("messy_orders.csv"), "messy_orders.csv").expect(201)
+    ).body.data;
+
+    expect(customers.status).toBe("READY");
+    expect(customers.qualityScore).toBeGreaterThan(90);
+    expect(customers.highestSensitivity).toBe("HIGH");
+    // AI disabled → no narrative.
+    const cDetail = (await request(app).get(`/api/datasets/${customers.id}`).expect(200)).body.data;
+    expect(cDetail.healthNarrative).toBeNull();
+    const email = cDetail.columns.find((c: { name: string }) => c.name === "email");
+    expect(email.classificationTag.category).toBe("EMAIL");
+    expect(email.classificationTag.sensitivity).toBe("HIGH");
+    const phone = cDetail.columns.find((c: { name: string }) => c.name === "phone");
+    expect(phone.classificationTag.category).toBe("PHONE");
+
+    expect(messy.status).toBe("READY");
+    expect(messy.qualityScore).toBeLessThan(customers.qualityScore);
+    const mDetail = (await request(app).get(`/api/datasets/${messy.id}`).expect(200)).body.data;
+    expect(mDetail.qualityChecks.length).toBeGreaterThan(0);
+    const notes = mDetail.columns.find((c: { name: string }) => c.name === "notes");
+    expect(notes.completeness).toBe(0); // empty column
+    expect(mDetail.qualityChecks.some((c: { checkType: string }) => c.checkType === "EMPTY_COLUMN")).toBe(true);
+    const custEmail = mDetail.columns.find((c: { name: string }) => c.name === "customer_email");
+    expect(custEmail.classificationTag.category).toBe("EMAIL");
+  });
+
+  it("records a non-rectangular sample (broken.csv) as a graceful FAILED dataset", async () => {
+    const res = await request(app)
+      .post("/api/datasets")
+      .attach("file", sample("broken.csv"), "broken.csv")
+      .expect(201);
+    expect(res.body.data.status).toBe("FAILED");
+    expect(res.body.data.errorMessage).toBeTruthy();
+    expect(res.body.data.qualityScore).toBeNull(); // R1: null scores on FAILED
+    expect(await prisma.classificationTag.count()).toBe(0); // no tags for a failed ingest
+  });
+
+  it("uses a provided name over the filename", async () => {
     const res = await request(app)
       .post("/api/datasets")
       .field("name", "Customer master")
@@ -88,7 +151,6 @@ describe("POST /api/datasets — ingestion + discovery", () => {
       .expect(201);
     expect(res.body.data.status).toBe("FAILED");
     expect(res.body.data.errorMessage).toBeTruthy();
-    // Still catalogued — a broken dataset is a first-class citizen.
     expect(await prisma.dataset.count()).toBe(1);
   });
 

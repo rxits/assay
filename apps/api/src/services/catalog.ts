@@ -1,12 +1,14 @@
-// Catalog reads (04 §2.3–2.4). List = offset pagination + sort + null-safe
-// sensitivity/recommendation filters (those signals arrive in Phase 2/3, so they
-// simply match nothing today). Detail = summary + columns; scoreBreakdown,
-// qualityChecks, healthNarrative, and usage are Phase 2/3 and returned empty/null.
+// Catalog reads (04 §2.3–2.4) + manual override (04 §2.5). List = offset pagination
+// + sort + sensitivity/recommendation filters. Detail = summary + columns (with tags),
+// score breakdown, quality checks, and health narrative; usage stays Phase 3 (empty).
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
-import type { DatasetDetail, DatasetSummary, PaginationMeta, UsageSeries } from "@assay/shared";
+import type { DatasetDetail, DatasetSummary, PaginationMeta, ScoreBreakdown, UsageSeries } from "@assay/shared";
 import { prisma } from "../lib/prisma";
-import { toColumnDTO, toDatasetSummary } from "./serialize";
+import { toColumnDTO, toDatasetSummary, toQualityCheckDTO } from "./serialize";
+
+// Included column shape carrying the 1:1 tag — used by detail (and the override response, 2.6).
+const columnWithTag = { include: { classificationTag: true } } as const;
 
 const SORT_VALUES = [
   "uploadedAt", "-uploadedAt", "name", "-name",
@@ -54,26 +56,32 @@ export async function listDatasets(
       orderBy: orderByFor(query.sort),
       skip: query.offset,
       take: query.limit,
+      // Tag sensitivities feed derived piiColumnCount + highestSensitivity (badge/filter).
+      include: { columns: { select: { classificationTag: { select: { sensitivity: true } } } } },
     }),
   ]);
 
-  const items = rows.map(toDatasetSummary);
+  const items = rows.map((r) => toDatasetSummary(r, r.columns));
   return { items, meta: { total, limit: query.limit, offset: query.offset, count: items.length } };
 }
 
 export async function getDatasetDetail(id: string): Promise<DatasetDetail | null> {
   const dataset = await prisma.dataset.findUnique({
     where: { id },
-    include: { columns: { orderBy: { position: "asc" } } },
+    include: {
+      columns: { orderBy: { position: "asc" }, ...columnWithTag },
+      qualityChecks: { orderBy: { createdAt: "asc" } },
+    },
   });
   if (!dataset) return null;
 
   const detail: DatasetDetail = {
-    ...toDatasetSummary(dataset),
-    scoreBreakdown: null, // Phase 2
-    healthNarrative: null, // Phase 2 (AI, graceful)
+    ...toDatasetSummary(dataset, dataset.columns),
+    // Stored as the wire shape at ingest (04 §4); null for a FAILED dataset that never scored.
+    scoreBreakdown: (dataset.scoreBreakdown as unknown as ScoreBreakdown | null) ?? null,
+    healthNarrative: dataset.healthNarrative, // null when AI disabled (graceful)
     columns: dataset.columns.map(toColumnDTO),
-    qualityChecks: [], // Phase 2
+    qualityChecks: dataset.qualityChecks.map(toQualityCheckDTO),
     usage: emptyUsage(dataset.id), // Phase 3 fills this from AccessEvents
   };
   if (dataset.sampleRows != null) {
