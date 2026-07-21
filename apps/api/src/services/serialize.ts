@@ -29,6 +29,7 @@ export function derivePii(
 export function toDatasetSummary(
   d: Dataset,
   columns?: { classificationTag: { sensitivity: Sensitivity } | null }[],
+  lastAccessedAt: string | null = null, // max AccessEvent.occurredAt (ISO); derived by the caller
 ): DatasetSummary {
   const { piiColumnCount, highestSensitivity } = derivePii(columns);
   return {
@@ -46,7 +47,7 @@ export function toDatasetSummary(
     valueRecommendation: d.valueRecommendation,
     piiColumnCount,
     highestSensitivity,
-    lastAccessedAt: null, // Phase 3: max AccessEvent.occurredAt
+    lastAccessedAt,
     errorMessage: d.errorMessage,
     uploadedAt: d.uploadedAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),

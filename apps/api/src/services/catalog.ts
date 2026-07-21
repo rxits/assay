@@ -1,21 +1,28 @@
-// Catalog reads (04 §2.3–2.4) + manual override (04 §2.5). List = offset pagination
-// + sort + sensitivity/recommendation filters. Detail = summary + columns (with tags),
-// score breakdown, quality checks, and health narrative; usage stays Phase 3 (empty).
+// Catalog reads (04 §2.3–2.4) + usage series (04 §2.6) + manual override (04 §2.5).
+// List = offset pagination + sort + sensitivity/recommendation filters. Detail = summary +
+// columns (with tags), score breakdown, quality checks, narrative, and the usage series; a
+// tracked detail view records a LIVE DETAIL_VIEW and recomputes Value (value-on-read, 04 §2.4).
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import type {
+  AccessType,
   ClassificationOverrideResponse,
   DatasetDetail,
   DatasetSummary,
   PaginationMeta,
   ScoreBreakdown,
+  UsagePoint,
   UsageSeries,
 } from "@assay/shared";
 import { prisma } from "../lib/prisma";
 import { ApiHttpError, fromZod } from "../lib/errors";
 import { DEFAULT_SENSITIVITY } from "../domain/classification";
-import { trustBreakdown } from "./scoring";
+import { computeValue } from "../domain/scoring";
+import { trustBreakdown, valueBreakdown } from "./scoring";
 import { toColumnDTO, toDatasetSummary, toQualityCheckDTO } from "./serialize";
+
+const DAY_MS = 86_400_000;
+const utcDay = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
 // Included column shape carrying the 1:1 tag — used by detail and the override response.
 const columnWithTag = { include: { classificationTag: true } } as const;
@@ -71,33 +78,166 @@ export async function listDatasets(
     }),
   ]);
 
-  const items = rows.map((r) => toDatasetSummary(r, r.columns));
+  // Derive lastAccessedAt for the page in one grouped scan (max occurredAt per dataset).
+  const ids = rows.map((r) => r.id);
+  const lastAccess = ids.length
+    ? await prisma.accessEvent.groupBy({ by: ["datasetId"], where: { datasetId: { in: ids } }, _max: { occurredAt: true } })
+    : [];
+  const lastMap = new Map(lastAccess.map((g) => [g.datasetId, g._max.occurredAt]));
+
+  const items = rows.map((r) => toDatasetSummary(r, r.columns, lastMap.get(r.id)?.toISOString() ?? null));
   return { items, meta: { total, limit: query.limit, offset: query.offset, count: items.length } };
 }
 
-export async function getDatasetDetail(id: string): Promise<DatasetDetail | null> {
-  const dataset = await prisma.dataset.findUnique({
+// GET /:id validates ?track (bad value → 422); default true preserves the spec side effect.
+export const detailQuerySchema = z.object({
+  track: z.enum(["true", "false"]).default("true"),
+});
+
+/**
+ * Full nested detail (04 §2.4). Unless `?track=false`, a detail view is itself the Data-Value
+ * signal: it records a LIVE `DETAIL_VIEW` and recomputes Value from ALL of the dataset's events.
+ * Only a READY dataset carries scores, so tracking is gated on it — a FAILED/PROCESSING dataset
+ * keeps its null scores (R1) rather than being resurrected by a view.
+ */
+export async function getDatasetDetail(id: string, track: boolean): Promise<DatasetDetail | null> {
+  const now = new Date();
+  const existing = await prisma.dataset.findUnique({ where: { id }, select: { status: true } });
+  if (!existing) return null;
+
+  if (track && existing.status === "READY") {
+    await prisma.accessEvent.create({ data: { datasetId: id, type: "DETAIL_VIEW", source: "LIVE", occurredAt: now } });
+    await recomputeDatasetValue(id, now);
+  }
+
+  const dataset = await prisma.dataset.findUniqueOrThrow({
     where: { id },
     include: {
       columns: { orderBy: { position: "asc" }, ...columnWithTag },
       qualityChecks: { orderBy: { createdAt: "asc" } },
     },
   });
-  if (!dataset) return null;
+  const usage = await buildUsageSeries(id, 90, undefined, now);
 
   const detail: DatasetDetail = {
-    ...toDatasetSummary(dataset, dataset.columns),
+    // lastAccessedAt is the usage summary's — one derivation feeds both the summary and this block.
+    ...toDatasetSummary(dataset, dataset.columns, usage.summary.lastAccessedAt),
     // Stored as the wire shape at ingest (04 §4); null for a FAILED dataset that never scored.
     scoreBreakdown: (dataset.scoreBreakdown as unknown as ScoreBreakdown | null) ?? null,
     healthNarrative: dataset.healthNarrative, // null when AI disabled (graceful)
     columns: dataset.columns.map(toColumnDTO),
     qualityChecks: dataset.qualityChecks.map(toQualityCheckDTO),
-    usage: emptyUsage(dataset.id), // Phase 3 fills this from AccessEvents
+    usage,
   };
   if (dataset.sampleRows != null) {
     detail.sampleRows = dataset.sampleRows as unknown as Record<string, unknown>[];
   }
   return detail;
+}
+
+/**
+ * Recompute Value from ALL of a dataset's access events and persist it (04 §2.4). Shared by
+ * value-on-read (GET /:id) and the seed, so seeded usage and live views run the exact same code.
+ * Quality/Trust are usage-independent and left untouched — only the Value block is spliced into
+ * the stored breakdown. Appends a ScoreSnapshot for the trend sparkline.
+ * ponytail: one snapshot per recompute — fine at demo scale; prune by capturedAt if it ever grows.
+ */
+export async function recomputeDatasetValue(datasetId: string, now = new Date()): Promise<void> {
+  const events = await prisma.accessEvent.findMany({ where: { datasetId }, select: { occurredAt: true } });
+  const value = computeValue(events, now);
+
+  const ds = await prisma.dataset.findUniqueOrThrow({
+    where: { id: datasetId },
+    select: { scoreBreakdown: true, qualityScore: true, trustScore: true },
+  });
+  const stored = ds.scoreBreakdown as unknown as ScoreBreakdown | null;
+  const breakdown = stored ? { ...stored, value: valueBreakdown(value) } : null;
+
+  await prisma.dataset.update({
+    where: { id: datasetId },
+    data: {
+      valueScore: value.score,
+      valueRecommendation: value.recommendation,
+      ...(breakdown ? { scoreBreakdown: breakdown as unknown as Prisma.InputJsonValue } : {}),
+    },
+  });
+
+  // A snapshot needs all three scores; only a scored (READY) dataset has Quality/Trust.
+  if (ds.qualityScore != null && ds.trustScore != null) {
+    await prisma.scoreSnapshot.create({
+      data: { datasetId, qualityScore: ds.qualityScore, trustScore: ds.trustScore, valueScore: value.score },
+    });
+  }
+}
+
+// --- Usage time-series (04 §2.6) -----------------------------------------
+export const usageQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).default(90),
+  type: z.enum(["VIEW", "DETAIL_VIEW", "DOWNLOAD"]).optional(),
+});
+export type UsageQueryInput = z.infer<typeof usageQuerySchema>;
+
+/**
+ * Zero-filled daily access series + fixed-window summary (04 §2.6). `days` sizes the *series*
+ * window only ([to−days .. to], `days` buckets, no gaps); the summary always reports the
+ * 90/30/prev-30 windows Value uses — so the detail block (unfiltered, 90d) matches the Value
+ * score. A `type` filter narrows the whole view (series and summary).
+ */
+async function buildUsageSeries(
+  datasetId: string,
+  days: number,
+  type: AccessType | undefined,
+  now: Date,
+): Promise<UsageSeries> {
+  const events = await prisma.accessEvent.findMany({
+    where: { datasetId, ...(type ? { type } : {}) },
+    select: { type: true, occurredAt: true },
+  });
+  const nowMs = now.getTime();
+
+  // Pre-seed `days` daily buckets [to−(days−1) .. to] so the chart renders without gaps.
+  const buckets = new Map<string, Record<AccessType, number>>();
+  for (let i = 0; i < days; i++) {
+    buckets.set(utcDay(nowMs - i * DAY_MS), { VIEW: 0, DETAIL_VIEW: 0, DOWNLOAD: 0 });
+  }
+
+  let accesses90d = 0;
+  let accessesLast30 = 0;
+  let accessesPrev30 = 0;
+  let maxMs = -Infinity;
+  for (const e of events) {
+    const t = e.occurredAt.getTime();
+    if (t > maxMs) maxMs = t;
+    // Windows match computeValue exactly (06 §6): half-open, anchored at now.
+    if (t <= nowMs && t > nowMs - 90 * DAY_MS) accesses90d++;
+    if (t <= nowMs && t > nowMs - 30 * DAY_MS) accessesLast30++;
+    if (t <= nowMs - 30 * DAY_MS && t > nowMs - 60 * DAY_MS) accessesPrev30++;
+    const bucket = buckets.get(utcDay(t)); // undefined = outside the series window (still counted above)
+    if (bucket) bucket[e.type]++;
+  }
+
+  const series: UsagePoint[] = [...buckets.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([date, byType]) => ({ date, total: byType.VIEW + byType.DETAIL_VIEW + byType.DOWNLOAD, byType }));
+
+  return {
+    datasetId,
+    from: utcDay(nowMs - days * DAY_MS),
+    to: utcDay(nowMs),
+    series,
+    summary: {
+      accesses90d,
+      accessesLast30,
+      accessesPrev30,
+      lastAccessedAt: maxMs === -Infinity ? null : new Date(maxMs).toISOString(),
+    },
+  };
+}
+
+export async function getDatasetUsage(id: string, query: UsageQueryInput): Promise<UsageSeries> {
+  const exists = await prisma.dataset.findUnique({ where: { id }, select: { id: true } });
+  if (!exists) throw new ApiHttpError(404, "dataset_not_found", "No dataset with that id.");
+  return buildUsageSeries(id, query.days, query.type, new Date());
 }
 
 // --- Manual override (04 §2.5 / 07 §8) -----------------------------------
@@ -167,20 +307,5 @@ export async function overrideClassification(
       updatedAt: updated.updatedAt.toISOString(),
       scoreBreakdown: { trust },
     },
-  };
-}
-
-// A zero-filled 90-day window so the Phase-3 usage chart has a shape to render
-// even before any access events exist.
-function emptyUsage(datasetId: string): UsageSeries {
-  const to = new Date();
-  const from = new Date(to.getTime() - 90 * 24 * 60 * 60 * 1000);
-  const iso = (d: Date): string => d.toISOString().slice(0, 10);
-  return {
-    datasetId,
-    from: iso(from),
-    to: iso(to),
-    series: [],
-    summary: { accesses90d: 0, accessesLast30: 0, accessesPrev30: 0, lastAccessedAt: null },
   };
 }

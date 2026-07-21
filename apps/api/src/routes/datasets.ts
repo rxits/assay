@@ -9,9 +9,12 @@ import { ApiHttpError, fromZod } from "../lib/errors";
 import { ingestDataset } from "../services/ingest";
 import {
   catalogQuerySchema,
+  detailQuerySchema,
   getDatasetDetail,
+  getDatasetUsage,
   listDatasets,
   overrideClassification,
+  usageQuerySchema,
 } from "../services/catalog";
 
 export const datasetsRouter = Router();
@@ -87,16 +90,36 @@ async function handleList(req: Request, res: Response, next: NextFunction): Prom
   }
 }
 
-// GET /api/datasets/:id — full nested detail (Phase 1: no DETAIL_VIEW tracking).
+// GET /api/datasets/:id — full nested detail; records a DETAIL_VIEW + recomputes Value
+// unless ?track=false (value-on-read, 04 §2.4).
 datasetsRouter.get("/datasets/:id", (req: Request, res: Response, next: NextFunction) => {
   void handleDetail(req, res, next);
 });
 
 async function handleDetail(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const detail = await getDatasetDetail(req.params.id ?? "");
+    const query = detailQuerySchema.safeParse(req.query);
+    if (!query.success) throw fromZod(query.error);
+    const detail = await getDatasetDetail(req.params.id ?? "", query.data.track !== "false");
     if (!detail) throw new ApiHttpError(404, "dataset_not_found", "No dataset with that id.");
     res.json({ data: detail });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// GET /api/datasets/:id/usage — daily access time-series for the value chart (04 §2.6).
+// No access event recorded (a sub-read of the value data is not itself a DETAIL_VIEW).
+datasetsRouter.get("/datasets/:id/usage", (req: Request, res: Response, next: NextFunction) => {
+  void handleUsage(req, res, next);
+});
+
+async function handleUsage(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const query = usageQuerySchema.safeParse(req.query);
+    if (!query.success) throw fromZod(query.error);
+    const usage = await getDatasetUsage(req.params.id ?? "", query.data);
+    res.json({ data: usage });
   } catch (err) {
     next(err);
   }

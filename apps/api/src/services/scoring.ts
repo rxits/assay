@@ -83,27 +83,37 @@ export function toWireBreakdown(q: QualityResult, t: TrustResult, v: ValueResult
       t.components.classificationCoverage.value,
       t.score,
     ),
-    value: {
-      score: v.score,
-      inputs: {
-        frequency: v.components.frequency.value,
-        recency: v.components.recency.value,
-        trend: v.components.trend.value,
-      },
-      weights: {
-        frequency: v.components.frequency.weight,
-        recency: v.components.recency.weight,
-        trend: v.components.trend.weight,
-      },
-      raw: {
-        accesses90d: v.inputs.accesses90d,
-        accessesLast30: v.inputs.accessesLast30,
-        accessesPrev30: v.inputs.accessesPrev30,
-        // Wire DTO is non-nullable; never-accessed (null) renders as 0 (Recency already 0).
-        daysSinceLastAccess: v.inputs.daysSinceLastAccess ?? 0,
-        freqCap: config.freqCap,
-        halfLife: config.halfLifeDays,
-      },
+    value: valueBreakdown(v),
+  };
+}
+
+/**
+ * Build the wire Value sub-breakdown from a ValueResult. Shared by ingest scoring and the
+ * value-on-read recompute (04 §2.4 / catalog.recomputeDatasetValue) so a seeded dataset and a
+ * live-tracked one persist an identical shape — the Value block is spliced into the stored
+ * breakdown on every recompute.
+ */
+export function valueBreakdown(v: ValueResult): WireScoreBreakdown["value"] {
+  return {
+    score: v.score,
+    inputs: {
+      frequency: v.components.frequency.value,
+      recency: v.components.recency.value,
+      trend: v.components.trend.value,
+    },
+    weights: {
+      frequency: v.components.frequency.weight,
+      recency: v.components.recency.weight,
+      trend: v.components.trend.weight,
+    },
+    raw: {
+      accesses90d: v.inputs.accesses90d,
+      accessesLast30: v.inputs.accessesLast30,
+      accessesPrev30: v.inputs.accessesPrev30,
+      // Wire DTO is non-nullable; never-accessed (null) renders as 0 (Recency already 0).
+      daysSinceLastAccess: v.inputs.daysSinceLastAccess ?? 0,
+      freqCap: config.freqCap,
+      halfLife: config.halfLifeDays,
     },
   };
 }

@@ -1,6 +1,7 @@
 // Catalog read endpoints (04 §2.3–2.4) against real Prisma. Phase 2B: detail
 // returns columns with resolved tags, a persisted scoreBreakdown, quality checks,
-// and (AI disabled locally) a null healthNarrative; usage stays an empty Phase-3 series.
+// and (AI disabled locally) a null healthNarrative. This detail read uses ?track=false so it
+// stays a pure structural read — value-on-read tracking is exercised in value.integration.test.ts.
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import request from "supertest";
 import { createApp } from "../../src/app";
@@ -63,7 +64,7 @@ describe("GET /api/datasets — catalog list", () => {
 describe("GET /api/datasets/:id — detail", () => {
   it("returns columns with resolved tags, a score breakdown, and quality checks", async () => {
     const id = await upload(CSV_A, "customers.csv");
-    const res = await request(app).get(`/api/datasets/${id}`).expect(200);
+    const res = await request(app).get(`/api/datasets/${id}?track=false`).expect(200);
     const d = res.body.data;
 
     expect(d.columns.map((c: { name: string }) => c.name)).toEqual(["email", "age"]);
@@ -74,7 +75,9 @@ describe("GET /api/datasets/:id — detail", () => {
     expect(d.scoreBreakdown.quality.score).toBeCloseTo(100, 1);
     expect(d.scoreBreakdown.trust.inputs.classificationCoverage).toBe(1);
     expect(d.healthNarrative).toBeNull(); // AI disabled locally
-    expect(d.usage.series).toEqual([]);
+    // Zero-filled 90-day window; ?track=false recorded no event, so it stays all-zero.
+    expect(d.usage.series).toHaveLength(90);
+    expect(d.usage.series.every((p: { total: number }) => p.total === 0)).toBe(true);
     expect(d.usage.summary.lastAccessedAt).toBeNull();
     expect(d.sampleRows).toHaveLength(2);
   });
