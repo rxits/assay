@@ -5,6 +5,8 @@ import express, { type Express, type NextFunction, type Request, type Response }
 import cors from "cors";
 import type { ApiError } from "@assay/shared";
 import { healthRouter } from "./routes/health";
+import { datasetsRouter } from "./routes/datasets";
+import { ApiHttpError } from "./lib/errors";
 
 export function createApp(): Express {
   const app = express();
@@ -13,6 +15,7 @@ export function createApp(): Express {
   app.use(express.json());
 
   app.use("/api", healthRouter);
+  app.use("/api", datasetsRouter);
 
   app.use(errorHandler);
 
@@ -26,6 +29,14 @@ function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFun
   if (err instanceof SyntaxError && "body" in err) {
     const body: ApiError = { error: { code: "malformed_json", message: "Request body is not valid JSON." } };
     res.status(400).json(body);
+    return;
+  }
+  // Typed application errors carry their own status/code/details (04 §1.3–1.5).
+  if (err instanceof ApiHttpError) {
+    const body: ApiError = {
+      error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) },
+    };
+    res.status(err.status).json(body);
     return;
   }
   const body: ApiError = { error: { code: "internal_error", message: "An unexpected error occurred." } };
