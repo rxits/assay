@@ -485,7 +485,7 @@ export function DashboardPage() {
           className="flex flex-col gap-4"
           variants={staggerContainer}
           initial={reduce ? false : "hidden"}
-          animate={reduce ? false : "show"}
+          animate="show"
         >
           {/* KPI tiles */}
           <motion.div variants={staggerContainer} className="grid grid-cols-2 gap-4 lg:grid-cols-5">
