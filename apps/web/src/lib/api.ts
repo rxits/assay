@@ -18,6 +18,7 @@ import type {
   CatalogQuery,
   ClassificationOverrideResponse,
   DatasetDetail,
+  DatasetOverview,
   DatasetSummary,
   FieldError,
   HealthResponse,
@@ -98,6 +99,12 @@ export async function getUsage(id: string, days?: number): Promise<UsageSeries> 
   return body.data;
 }
 
+/** GET /api/overview — catalog-wide aggregate for the dashboard home (R1.2). */
+export async function getOverview(): Promise<DatasetOverview> {
+  const body = await http<ApiSuccess<DatasetOverview>>("/api/overview");
+  return body.data;
+}
+
 export interface UploadVars {
   file: File;
   name?: string;
@@ -162,7 +169,15 @@ export const queryKeys = {
   datasets: (q: CatalogQuery) => ["datasets", q] as const,
   dataset: (id: string) => ["dataset", id] as const,
   usage: (id: string, days?: number) => ["usage", id, days ?? 90] as const,
+  overview: () => ["overview"] as const,
 };
+
+export function useOverview() {
+  return useQuery({
+    queryKey: queryKeys.overview(),
+    queryFn: getOverview,
+  });
+}
 
 export function useDatasets(query: CatalogQuery = {}) {
   return useQuery({
@@ -195,6 +210,7 @@ export function useUploadDataset() {
     mutationFn: uploadDataset,
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["datasets"] });
+      void qc.invalidateQueries({ queryKey: ["overview"] });
     },
   });
 }
@@ -206,6 +222,7 @@ export function useOverrideClassification() {
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: queryKeys.dataset(vars.datasetId) });
       void qc.invalidateQueries({ queryKey: ["datasets"] });
+      void qc.invalidateQueries({ queryKey: ["overview"] });
     },
   });
 }

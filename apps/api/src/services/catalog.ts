@@ -8,11 +8,15 @@ import type {
   AccessType,
   ClassificationOverrideResponse,
   DatasetDetail,
+  DatasetOverview,
+  DatasetStatus,
   DatasetSummary,
   PaginationMeta,
   ScoreBreakdown,
+  Sensitivity,
   UsagePoint,
   UsageSeries,
+  ValueRecommendation,
 } from "@assay/shared";
 import { prisma } from "../lib/prisma";
 import { ApiHttpError, fromZod } from "../lib/errors";
@@ -87,6 +91,80 @@ export async function listDatasets(
 
   const items = rows.map((r) => toDatasetSummary(r, r.columns, lastMap.get(r.id)?.toISOString() ?? null));
   return { items, meta: { total, limit: query.limit, offset: query.offset, count: items.length } };
+}
+
+// --- Dashboard overview aggregate (R1.2) ---------------------------------
+// Catalog-wide roll-up for the dashboard home. A handful of cheap grouped
+// counts/aggregates run concurrently — no per-dataset serialization. Independent
+// read-only queries, so Promise.all (not a transaction): an overview is inherently
+// eventually-consistent and this keeps Prisma's per-call result types precise.
+// Averages come from Prisma _avg (which already ignores null scores), so they
+// reflect only the datasets that carry each score; distributions fill every key.
+const SENSITIVITY_LEVELS: Sensitivity[] = ["NONE", "LOW", "MEDIUM", "HIGH"];
+const RECOMMENDATIONS: ValueRecommendation[] = ["KEEP", "OPTIMIZE", "ARCHIVE", "RETIRE"];
+
+const round1 = (n: number | null): number => (n == null ? 0 : Math.round(n * 10) / 10);
+
+export async function getOverview(): Promise<DatasetOverview> {
+  const [agg, byStatus, byRecommendation, bySensitivity, recent, attention] = await Promise.all([
+    prisma.dataset.aggregate({
+      _count: true,
+      _avg: { qualityScore: true, trustScore: true, valueScore: true },
+      _sum: { rowCount: true, columnCount: true },
+    }),
+    prisma.dataset.groupBy({ by: ["status"], _count: true, orderBy: { status: "asc" } }),
+    prisma.dataset.groupBy({ by: ["valueRecommendation"], _count: true, orderBy: { valueRecommendation: "asc" } }),
+    prisma.classificationTag.groupBy({ by: ["sensitivity"], _count: true, orderBy: { sensitivity: "asc" } }),
+    prisma.dataset.findMany({
+      orderBy: { uploadedAt: "desc" },
+      take: 5,
+      select: { id: true, name: true, uploadedAt: true, qualityScore: true },
+    }),
+    // RETIRE-recommended or FAILED — the datasets a steward should look at first.
+    prisma.dataset.findMany({
+      where: { OR: [{ status: "FAILED" }, { valueRecommendation: "RETIRE" }] },
+      orderBy: { uploadedAt: "desc" },
+      take: 10,
+      select: { id: true, name: true, valueRecommendation: true, status: true },
+    }),
+  ]);
+
+  const statusCount = (s: DatasetStatus): number => byStatus.find((g) => g.status === s)?._count ?? 0;
+
+  const sensitivityDistribution = Object.fromEntries(
+    SENSITIVITY_LEVELS.map((level) => [level, bySensitivity.find((g) => g.sensitivity === level)?._count ?? 0]),
+  ) as Record<Sensitivity, number>;
+
+  const recommendationDistribution = Object.fromEntries(
+    RECOMMENDATIONS.map((r) => [r, byRecommendation.find((g) => g.valueRecommendation === r)?._count ?? 0]),
+  ) as Record<ValueRecommendation, number>;
+
+  return {
+    totalDatasets: agg._count,
+    ready: statusCount("READY"),
+    failed: statusCount("FAILED"),
+    processing: statusCount("PROCESSING"),
+    avgQuality: round1(agg._avg.qualityScore),
+    avgTrust: round1(agg._avg.trustScore),
+    avgValue: round1(agg._avg.valueScore),
+    totalRows: agg._sum.rowCount ?? 0,
+    totalColumns: agg._sum.columnCount ?? 0,
+    piiColumnCount: sensitivityDistribution.LOW + sensitivityDistribution.MEDIUM + sensitivityDistribution.HIGH,
+    sensitivityDistribution,
+    recommendationDistribution,
+    recentUploads: recent.map((r) => ({
+      id: r.id,
+      name: r.name,
+      uploadedAt: r.uploadedAt.toISOString(),
+      qualityScore: r.qualityScore,
+    })),
+    needsAttention: attention.map((a) => ({
+      id: a.id,
+      name: a.name,
+      valueRecommendation: a.valueRecommendation,
+      status: a.status,
+    })),
+  };
 }
 
 // GET /:id validates ?track (bad value → 422); default true preserves the spec side effect.

@@ -12,12 +12,20 @@ import {
   detailQuerySchema,
   getDatasetDetail,
   getDatasetUsage,
+  getOverview,
   listDatasets,
   overrideClassification,
   usageQuerySchema,
 } from "../services/catalog";
 
 export const datasetsRouter = Router();
+
+// GET /api/overview — catalog-wide aggregate for the dashboard home (R1.2).
+datasetsRouter.get("/overview", (_req: Request, res: Response, next: NextFunction) => {
+  getOverview()
+    .then((overview) => res.json({ data: overview }))
+    .catch(next);
+});
 
 function fileTypeOf(filename: string): FileType | null {
   const lower = filename.toLowerCase();

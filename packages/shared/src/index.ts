@@ -178,6 +178,37 @@ export interface CatalogQuery {
 /** GET /datasets/:id/usage query. */
 export interface UsageQuery { days?: number; type?: AccessType; }
 
+/** GET /overview — catalog-wide aggregate powering the dashboard home (R1.2). */
+export interface OverviewRecentUpload {
+  id: string;
+  name: string;
+  uploadedAt: string;          // ISO-8601
+  qualityScore: number | null; // null while PROCESSING / when FAILED
+}
+export interface OverviewAttentionItem {
+  id: string;
+  name: string;
+  valueRecommendation: ValueRecommendation | null;
+  status: DatasetStatus;
+}
+export interface DatasetOverview {
+  totalDatasets: number;
+  ready: number;
+  failed: number;
+  processing: number;
+  // Averages over the datasets that carry each score (READY); 0 when none exist.
+  avgQuality: number;
+  avgTrust: number;
+  avgValue: number;
+  totalRows: number;
+  totalColumns: number;
+  piiColumnCount: number;                              // columns whose tag is > NONE
+  sensitivityDistribution: Record<Sensitivity, number>;         // classified columns per level
+  recommendationDistribution: Record<ValueRecommendation, number>; // scored datasets per recommendation
+  recentUploads: OverviewRecentUpload[];               // newest first, ≤ 5
+  needsAttention: OverviewAttentionItem[];             // RETIRE or FAILED, ≤ 10
+}
+
 export interface HealthResponse {
   status: "ok";
   service: string;
