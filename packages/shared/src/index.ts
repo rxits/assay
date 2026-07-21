@@ -134,6 +134,8 @@ export interface DatasetSummary {
   piiColumnCount: number;               // derived: columns with sensitivity > NONE
   highestSensitivity: Sensitivity | null; // derived: max column sensitivity (drives ?sensitivity filter & badge)
   lastAccessedAt: string | null;        // derived
+  accessCount: number;                  // derived: total AccessEvents ("usage/view count")
+  accessCount90d: number;               // derived: AccessEvents in the trailing 90-day window
   errorMessage: string | null;
   uploadedAt: string;
   updatedAt: string;

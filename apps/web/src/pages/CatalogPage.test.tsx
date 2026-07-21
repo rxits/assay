@@ -24,6 +24,8 @@ function summary(over: Partial<DatasetSummary>): DatasetSummary {
     piiColumnCount: 0,
     highestSensitivity: "NONE",
     lastAccessedAt: "2026-07-20T10:00:00.000Z",
+    accessCount: 128,
+    accessCount90d: 34,
     errorMessage: null,
     uploadedAt: "2026-07-18T10:00:00.000Z",
     updatedAt: "2026-07-18T10:00:00.000Z",

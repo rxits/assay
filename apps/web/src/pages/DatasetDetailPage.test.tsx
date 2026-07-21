@@ -39,6 +39,8 @@ const detail: DatasetDetail = {
   piiColumnCount: 1,
   highestSensitivity: "HIGH",
   lastAccessedAt: "2026-07-21T14:40:11.000Z",
+  accessCount: 128,
+  accessCount90d: 34,
   errorMessage: null,
   uploadedAt: "2026-07-18T10:00:00.000Z",
   updatedAt: "2026-07-18T10:00:00.000Z",

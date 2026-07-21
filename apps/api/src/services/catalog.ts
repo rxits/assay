@@ -82,14 +82,36 @@ export async function listDatasets(
     }),
   ]);
 
-  // Derive lastAccessedAt for the page in one grouped scan (max occurredAt per dataset).
+  // Derive the page's usage roll-up in two grouped scans, never per-row: one over all
+  // events (total "usage/view count" + max occurredAt), one over the trailing 90 days.
+  // Prisma has no per-aggregate FILTER, so the window needs its own groupBy.
   const ids = rows.map((r) => r.id);
-  const lastAccess = ids.length
-    ? await prisma.accessEvent.groupBy({ by: ["datasetId"], where: { datasetId: { in: ids } }, _max: { occurredAt: true } })
-    : [];
-  const lastMap = new Map(lastAccess.map((g) => [g.datasetId, g._max.occurredAt]));
+  const since = new Date(Date.now() - 90 * DAY_MS);
+  const [allTime, recent] = ids.length
+    ? await Promise.all([
+        prisma.accessEvent.groupBy({
+          by: ["datasetId"],
+          where: { datasetId: { in: ids } },
+          _count: { _all: true },
+          _max: { occurredAt: true },
+        }),
+        prisma.accessEvent.groupBy({
+          by: ["datasetId"],
+          where: { datasetId: { in: ids }, occurredAt: { gte: since } },
+          _count: { _all: true },
+        }),
+      ])
+    : [[], []];
+  const allTimeMap = new Map(allTime.map((g) => [g.datasetId, g]));
+  const recentMap = new Map(recent.map((g) => [g.datasetId, g._count._all]));
 
-  const items = rows.map((r) => toDatasetSummary(r, r.columns, lastMap.get(r.id)?.toISOString() ?? null));
+  const items = rows.map((r) =>
+    toDatasetSummary(r, r.columns, {
+      lastAccessedAt: allTimeMap.get(r.id)?._max.occurredAt?.toISOString() ?? null,
+      accessCount: allTimeMap.get(r.id)?._count._all ?? 0,
+      accessCount90d: recentMap.get(r.id) ?? 0,
+    }),
+  );
   return { items, meta: { total, limit: query.limit, offset: query.offset, count: items.length } };
 }
 
@@ -195,11 +217,20 @@ export async function getDatasetDetail(id: string, track: boolean): Promise<Data
       qualityChecks: { orderBy: { createdAt: "asc" } },
     },
   });
-  const usage = await buildUsageSeries(id, 90, undefined, now);
+  // The unfiltered 90-day series already carries lastAccessedAt + accesses90d; only the
+  // all-time "usage/view count" needs its own (indexed, single-column) count.
+  const [usage, accessCount] = await Promise.all([
+    buildUsageSeries(id, 90, undefined, now),
+    prisma.accessEvent.count({ where: { datasetId: id } }),
+  ]);
 
   const detail: DatasetDetail = {
     // lastAccessedAt is the usage summary's — one derivation feeds both the summary and this block.
-    ...toDatasetSummary(dataset, dataset.columns, usage.summary.lastAccessedAt),
+    ...toDatasetSummary(dataset, dataset.columns, {
+      lastAccessedAt: usage.summary.lastAccessedAt,
+      accessCount,
+      accessCount90d: usage.summary.accesses90d,
+    }),
     // Stored as the wire shape at ingest (04 §4); null for a FAILED dataset that never scored.
     scoreBreakdown: (dataset.scoreBreakdown as unknown as ScoreBreakdown | null) ?? null,
     healthNarrative: dataset.healthNarrative, // null when AI disabled (graceful)

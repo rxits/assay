@@ -26,10 +26,19 @@ export function derivePii(
   return { piiColumnCount, highestSensitivity };
 }
 
+/** Usage roll-up for one dataset, derived by the caller (grouped scan / count — never N+1). */
+export interface AccessRollup {
+  lastAccessedAt: string | null; // max AccessEvent.occurredAt (ISO)
+  accessCount: number; // total AccessEvents — the brief's "usage/view count"
+  accessCount90d: number; // AccessEvents in the trailing 90-day window
+}
+
+const NO_ACCESS: AccessRollup = { lastAccessedAt: null, accessCount: 0, accessCount90d: 0 };
+
 export function toDatasetSummary(
   d: Dataset,
   columns?: { classificationTag: { sensitivity: Sensitivity } | null }[],
-  lastAccessedAt: string | null = null, // max AccessEvent.occurredAt (ISO); derived by the caller
+  access: AccessRollup = NO_ACCESS,
 ): DatasetSummary {
   const { piiColumnCount, highestSensitivity } = derivePii(columns);
   return {
@@ -47,7 +56,9 @@ export function toDatasetSummary(
     valueRecommendation: d.valueRecommendation,
     piiColumnCount,
     highestSensitivity,
-    lastAccessedAt,
+    lastAccessedAt: access.lastAccessedAt,
+    accessCount: access.accessCount,
+    accessCount90d: access.accessCount90d,
     errorMessage: d.errorMessage,
     uploadedAt: d.uploadedAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),

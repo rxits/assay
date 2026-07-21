@@ -54,6 +54,28 @@ describe("GET /api/datasets — catalog list", () => {
     expect(res.body.error.details.length).toBeGreaterThan(0);
   });
 
+  it("reports a usage/view count per dataset that tracks recorded accesses", async () => {
+    const id = await upload(CSV_A, "customers.csv");
+    await upload(CSV_B, "orders.csv");
+
+    // Freshly uploaded: profiled but never accessed.
+    const before = await request(app).get("/api/datasets").expect(200);
+    expect(before.body.data.every((d: { accessCount: number }) => d.accessCount === 0)).toBe(true);
+
+    // Two tracked detail views record two AccessEvents against `customers.csv` only.
+    await request(app).get(`/api/datasets/${id}`).expect(200);
+    await request(app).get(`/api/datasets/${id}`).expect(200);
+
+    const after = await request(app).get("/api/datasets").expect(200);
+    const rows = after.body.data as { name: string; accessCount: number; accessCount90d: number }[];
+    expect(rows.find((d) => d.name === "customers.csv")).toMatchObject({ accessCount: 2, accessCount90d: 2 });
+    expect(rows.find((d) => d.name === "orders.csv")).toMatchObject({ accessCount: 0, accessCount90d: 0 });
+
+    // The detail DTO carries the same derived count (its own read is tracked, so 3 by then).
+    const detail = await request(app).get(`/api/datasets/${id}?track=false`).expect(200);
+    expect(detail.body.data.accessCount).toBe(2);
+  });
+
   it("returns an empty catalog cleanly", async () => {
     const res = await request(app).get("/api/datasets").expect(200);
     expect(res.body.data).toEqual([]);
