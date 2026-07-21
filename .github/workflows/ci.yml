@@ -1,0 +1,52 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    # Ephemeral, throwaway Postgres for the quality gate — never the production
+    # Neon DB (09 §6 keeps DATABASE_URL out of CI's reach to prod).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: assay
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/assay
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.6.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Prisma client must exist before typecheck/test.
+      - run: pnpm --filter ./apps/api exec prisma generate
+
+      # Apply committed migrations to the ephemeral CI database.
+      - run: pnpm --filter ./apps/api exec prisma migrate deploy
+
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
