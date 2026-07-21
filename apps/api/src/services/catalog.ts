@@ -3,11 +3,21 @@
 // score breakdown, quality checks, and health narrative; usage stays Phase 3 (empty).
 import type { Prisma } from "@prisma/client";
 import { z } from "zod";
-import type { DatasetDetail, DatasetSummary, PaginationMeta, ScoreBreakdown, UsageSeries } from "@assay/shared";
+import type {
+  ClassificationOverrideResponse,
+  DatasetDetail,
+  DatasetSummary,
+  PaginationMeta,
+  ScoreBreakdown,
+  UsageSeries,
+} from "@assay/shared";
 import { prisma } from "../lib/prisma";
+import { ApiHttpError, fromZod } from "../lib/errors";
+import { DEFAULT_SENSITIVITY } from "../domain/classification";
+import { trustBreakdown } from "./scoring";
 import { toColumnDTO, toDatasetSummary, toQualityCheckDTO } from "./serialize";
 
-// Included column shape carrying the 1:1 tag — used by detail (and the override response, 2.6).
+// Included column shape carrying the 1:1 tag — used by detail and the override response.
 const columnWithTag = { include: { classificationTag: true } } as const;
 
 const SORT_VALUES = [
@@ -88,6 +98,76 @@ export async function getDatasetDetail(id: string): Promise<DatasetDetail | null
     detail.sampleRows = dataset.sampleRows as unknown as Record<string, unknown>[];
   }
   return detail;
+}
+
+// --- Manual override (04 §2.5 / 07 §8) -----------------------------------
+const overrideBodySchema = z.object({
+  category: z.enum([
+    "EMAIL", "PHONE", "ID_NUMBER", "CREDIT_CARD", "DATE_OF_BIRTH",
+    "NAME", "ADDRESS", "IP_ADDRESS", "POSTAL_CODE", "NONE", "OTHER",
+  ]),
+  sensitivity: z.enum(["NONE", "LOW", "MEDIUM", "HIGH"]).optional(),
+});
+
+/**
+ * Apply a MANUAL classification tag and recompute Trust (07 §8). The override guarantees the
+ * column is classified, so ClassificationCoverage → Trust may move; Quality and Value are
+ * untouched (Value is usage-only, Quality is classification-independent). Consistency and
+ * Quality are read back from the persisted breakdown — only coverage changes.
+ */
+export async function overrideClassification(
+  datasetId: string,
+  columnId: string,
+  body: unknown,
+): Promise<ClassificationOverrideResponse> {
+  const parsed = overrideBodySchema.safeParse(body);
+  if (!parsed.success) throw fromZod(parsed.error);
+  const { category } = parsed.data;
+  const sensitivity = parsed.data.sensitivity ?? DEFAULT_SENSITIVITY[category];
+
+  const dataset = await prisma.dataset.findUnique({ where: { id: datasetId } });
+  if (!dataset) throw new ApiHttpError(404, "dataset_not_found", "No dataset with that id.");
+
+  const column = await prisma.column.findFirst({ where: { id: columnId, datasetId } });
+  if (!column) throw new ApiHttpError(404, "column_not_found", "No column with that id under this dataset.");
+
+  // Upsert the 1:1 tag: a human decision (source MANUAL, overridden, no match-share confidence).
+  await prisma.classificationTag.upsert({
+    where: { columnId },
+    create: { columnId, category, sensitivity, source: "MANUAL", confidence: null, overridden: true },
+    update: { category, sensitivity, source: "MANUAL", confidence: null, overridden: true },
+  });
+
+  // Recompute ClassificationCoverage → Trust. Quality + Consistency are stable properties of the
+  // data (unchanged by a tag edit) and are read back from the stored breakdown.
+  const classifiedCount = await prisma.classificationTag.count({ where: { column: { datasetId } } });
+  const coverage = dataset.columnCount > 0 ? classifiedCount / dataset.columnCount : 0;
+  const stored = dataset.scoreBreakdown as unknown as ScoreBreakdown | null;
+  const qualityUnit = (dataset.qualityScore ?? 0) / 100;
+  const consistency = stored?.trust.inputs.consistency ?? 0;
+  const trust = trustBreakdown(qualityUnit, consistency, coverage);
+
+  const updatedBreakdown = stored ? { ...stored, trust } : null;
+  const updated = await prisma.dataset.update({
+    where: { id: datasetId },
+    data: {
+      trustScore: trust.score,
+      ...(updatedBreakdown ? { scoreBreakdown: updatedBreakdown as unknown as Prisma.InputJsonValue } : {}),
+    },
+  });
+
+  const columnDTO = await prisma.column.findUniqueOrThrow({ where: { id: columnId }, ...columnWithTag });
+  return {
+    column: toColumnDTO(columnDTO),
+    dataset: {
+      id: updated.id,
+      qualityScore: updated.qualityScore,
+      trustScore: updated.trustScore,
+      valueScore: updated.valueScore,
+      updatedAt: updated.updatedAt.toISOString(),
+      scoreBreakdown: { trust },
+    },
+  };
 }
 
 // A zero-filled 90-day window so the Phase-3 usage chart has a shape to render

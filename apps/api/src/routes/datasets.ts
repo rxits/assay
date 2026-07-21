@@ -7,7 +7,12 @@ import type { FileType } from "@assay/shared";
 import { MAX_UPLOAD_BYTES } from "../lib/config";
 import { ApiHttpError, fromZod } from "../lib/errors";
 import { ingestDataset } from "../services/ingest";
-import { catalogQuerySchema, getDatasetDetail, listDatasets } from "../services/catalog";
+import {
+  catalogQuerySchema,
+  getDatasetDetail,
+  listDatasets,
+  overrideClassification,
+} from "../services/catalog";
 
 export const datasetsRouter = Router();
 
@@ -92,6 +97,23 @@ async function handleDetail(req: Request, res: Response, next: NextFunction): Pr
     const detail = await getDatasetDetail(req.params.id ?? "");
     if (!detail) throw new ApiHttpError(404, "dataset_not_found", "No dataset with that id.");
     res.json({ data: detail });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// PATCH /api/datasets/:id/columns/:columnId/classification — manual override (04 §2.5).
+datasetsRouter.patch(
+  "/datasets/:id/columns/:columnId/classification",
+  (req: Request, res: Response, next: NextFunction) => {
+    void handleOverride(req, res, next);
+  },
+);
+
+async function handleOverride(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await overrideClassification(req.params.id ?? "", req.params.columnId ?? "", req.body);
+    res.json({ data });
   } catch (err) {
     next(err);
   }
