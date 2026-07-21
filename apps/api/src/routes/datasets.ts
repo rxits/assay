@@ -7,6 +7,7 @@ import type { FileType } from "@assay/shared";
 import { MAX_UPLOAD_BYTES } from "../lib/config";
 import { ApiHttpError, fromZod } from "../lib/errors";
 import { ingestDataset } from "../services/ingest";
+import { catalogQuerySchema, getDatasetDetail, listDatasets } from "../services/catalog";
 
 export const datasetsRouter = Router();
 
@@ -60,6 +61,37 @@ async function handleUpload(req: Request, res: Response, next: NextFunction): Pr
     });
 
     res.status(201).location(`/api/datasets/${summary.id}`).json({ data: summary });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// GET /api/datasets — paginated, filterable, sortable catalog list.
+datasetsRouter.get("/datasets", (req: Request, res: Response, next: NextFunction) => {
+  void handleList(req, res, next);
+});
+
+async function handleList(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const query = catalogQuerySchema.safeParse(req.query);
+    if (!query.success) throw fromZod(query.error);
+    const { items, meta } = await listDatasets(query.data);
+    res.json({ data: items, meta });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// GET /api/datasets/:id — full nested detail (Phase 1: no DETAIL_VIEW tracking).
+datasetsRouter.get("/datasets/:id", (req: Request, res: Response, next: NextFunction) => {
+  void handleDetail(req, res, next);
+});
+
+async function handleDetail(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const detail = await getDatasetDetail(req.params.id ?? "");
+    if (!detail) throw new ApiHttpError(404, "dataset_not_found", "No dataset with that id.");
+    res.json({ data: detail });
   } catch (err) {
     next(err);
   }
