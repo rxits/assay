@@ -6,6 +6,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
+// Keep the oversized-upload test cheap: pin the cap to 1 MB under test so it
+// allocates ~1 MB instead of the 100 MB production default.
+process.env.MAX_UPLOAD_MB ??= "1";
+
 if (!process.env.DATABASE_URL) {
   if (process.env.TEST_DATABASE_URL) {
     process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;

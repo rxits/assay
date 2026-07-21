@@ -31,5 +31,11 @@ export const CLASSIFY = {
   AMBIGUOUS_MIN: 0.30, // [tunable] partial value-share (0.30–0.70) that marks a column "ambiguous"
 } as const;
 
-// Upload cap (04 §2.2): 10 MiB, enforced via multer `limits.fileSize` (Phase 1).
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+// Upload cap (04 §2.2), enforced via multer `limits.fileSize`.
+// Env-tunable via `MAX_UPLOAD_MB` so a constrained host (e.g. a 512 MB free-tier
+// dyno) can lower it without a code change, and so tests can pin it small rather
+// than allocating a production-sized buffer. Default 100 MB.
+const parsedUploadMb = Number(process.env.MAX_UPLOAD_MB);
+export const MAX_UPLOAD_MB =
+  Number.isFinite(parsedUploadMb) && parsedUploadMb > 0 ? parsedUploadMb : 100;
+export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
