@@ -1,15 +1,21 @@
-// Catalog data-table — 05 §4.1 / §6a. Semantic <table>; score columns render an
-// inline mini-gauge + tabular numeral; Name/Rows/Quality/Trust/Value/Uploaded
-// headers are sort buttons driving ?sort with aria-sort. Rows link to the detail
-// page. PROCESSING → indeterminate score cells; FAILED → dashed scores + the
-// errorMessage on hover.
+// Catalog data-table — 05 §4.1 / §6a, repainted onto the R1 glass system (R2.2).
+// Semantic <table> inside one glass surface; score columns render an inline
+// mini-gauge + tabular numeral; Name/Rows/Quality/Trust/Value/Uploaded headers are
+// sort buttons driving ?sort with aria-sort. A "Views" column carries the brief's
+// usage/view count (accessCount) as a tabular numeral beside a magnitude micro-bar
+// — sequential single hue, normalised to the page's busiest dataset (dataviz: the
+// bar is decorative reinforcement, the numeral is the value). Rows link to the
+// detail page, stagger in on mount, and reveal a spring accent rail on hover.
+// PROCESSING → indeterminate score cells; FAILED → dashed scores + errorMessage.
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import type { DatasetSummary } from "@assay/shared";
 import { ScoreGauge } from "@/components/dataset/ScoreGauge";
 import { RecommendationBadge, SensitivityBadge } from "@/components/dataset/SensitivityBadge";
-import { formatCount, relativeTime } from "@/lib/format";
+import { formatCompact, formatCount, relativeTime } from "@/lib/format";
+import { fadeUpItem, staggerContainer } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 // Header key → API sort key (04 §1.6). Only these six are sortable.
@@ -48,7 +54,10 @@ interface CatalogTableProps {
 
 export function CatalogTable({ datasets, sort, onSortChange, dimmed }: CatalogTableProps) {
   const navigate = useNavigate();
+  const reduce = useReducedMotion() ?? false;
   const current = parseSort(sort);
+  // Normalise the usage micro-bars to the busiest dataset on this page.
+  const maxViews = Math.max(...datasets.map((d) => d.accessCount), 1);
 
   function toggle(key: SortKey) {
     if (current.key === key) {
@@ -66,37 +75,40 @@ export function CatalogTable({ datasets, sort, onSortChange, dimmed }: CatalogTa
   return (
     <div
       className={cn(
-        "overflow-x-auto rounded-md border border-border bg-card shadow-xs transition-opacity",
+        "glass overflow-hidden rounded-xl border border-[color:var(--glass-border)] transition-opacity duration-200",
         dimmed && "opacity-50",
       )}
     >
-      <table className="w-full border-collapse text-[14px]">
-        <thead>
-          <tr className="border-b border-border">
-            <SortHeader label="Name" sortKey="name" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "name"} desc={current.desc} />
-            <SortHeader label="Rows" sortKey="rowCount" onToggle={toggle} ariaSort={ariaSort} align="right" active={current.key === "rowCount"} desc={current.desc} />
-            <Th align="right">Cols</Th>
-            <SortHeader label="Quality" sortKey="qualityScore" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "qualityScore"} desc={current.desc} />
-            <SortHeader label="Trust" sortKey="trustScore" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "trustScore"} desc={current.desc} />
-            <SortHeader label="Value" sortKey="valueScore" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "valueScore"} desc={current.desc} />
-            <Th align="left">Recommendation</Th>
-            <Th align="left">Sensitivity</Th>
-            <Th align="left">Usage</Th>
-            <SortHeader label="Uploaded" sortKey="uploadedAt" onToggle={toggle} ariaSort={ariaSort} align="right" active={current.key === "uploadedAt"} desc={current.desc} />
-          </tr>
-        </thead>
-        <tbody>
-          {datasets.map((d) => (
-            <Row key={d.id} dataset={d} onOpen={() => navigate(`/datasets/${d.id}`)} />
-          ))}
-        </tbody>
-      </table>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[14px]">
+          <thead>
+            <tr className="border-b border-[color:var(--glass-border)] bg-background/25">
+              <SortHeader label="Name" sortKey="name" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "name"} desc={current.desc} />
+              <SortHeader label="Rows" sortKey="rowCount" onToggle={toggle} ariaSort={ariaSort} align="right" active={current.key === "rowCount"} desc={current.desc} />
+              <Th align="right">Cols</Th>
+              <SortHeader label="Quality" sortKey="qualityScore" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "qualityScore"} desc={current.desc} />
+              <SortHeader label="Trust" sortKey="trustScore" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "trustScore"} desc={current.desc} />
+              <SortHeader label="Value" sortKey="valueScore" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "valueScore"} desc={current.desc} />
+              <Th align="left">Recommendation</Th>
+              <Th align="left">Sensitivity</Th>
+              <Th align="right">Views</Th>
+              <Th align="left">Last used</Th>
+              <SortHeader label="Uploaded" sortKey="uploadedAt" onToggle={toggle} ariaSort={ariaSort} align="right" active={current.key === "uploadedAt"} desc={current.desc} />
+            </tr>
+          </thead>
+          <motion.tbody variants={staggerContainer} initial={reduce ? false : "hidden"} animate="show">
+            {datasets.map((d) => (
+              <Row key={d.id} dataset={d} maxViews={maxViews} onOpen={() => navigate(`/datasets/${d.id}`)} />
+            ))}
+          </motion.tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
 const HEADER_CLASS =
-  "px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.04em] text-muted-foreground";
+  "px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
 
 function Th({ children, align }: { children: ReactNode; align: "left" | "right" }) {
   return (
@@ -130,38 +142,59 @@ function SortHeader({
         type="button"
         onClick={() => onToggle(sortKey)}
         className={cn(
-          "flex w-full items-center gap-1 px-3 py-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+          // The caret springs into its new direction rather than swapping hard.
+          "group flex w-full items-center gap-1.5 px-3 py-2.5 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
           align === "right" ? "justify-end" : "justify-start",
           active && "text-foreground",
         )}
       >
         <span>{label}</span>
-        <Caret aria-hidden="true" className={cn("h-3 w-3", !active && "opacity-40")} />
+        <Caret
+          aria-hidden="true"
+          className={cn(
+            "h-3 w-3 transition-[opacity,transform] duration-200 [transition-timing-function:var(--ease-spring)]",
+            active ? "opacity-100" : "opacity-0 group-hover:opacity-50",
+          )}
+        />
       </button>
     </th>
   );
 }
 
-function Row({ dataset: d, onOpen }: { dataset: DatasetSummary; onOpen: () => void }) {
+function Row({
+  dataset: d,
+  maxViews,
+  onOpen,
+}: {
+  dataset: DatasetSummary;
+  maxViews: number;
+  onOpen: () => void;
+}) {
   const FileIcon = d.fileType === "XLSX" ? FileSpreadsheet : FileText;
   const failed = d.status === "FAILED";
   const processing = d.status === "PROCESSING";
 
   return (
-    <tr
+    <motion.tr
+      variants={fadeUpItem}
       onClick={onOpen}
-      className="group cursor-pointer border-b border-border last:border-0 transition-colors hover:bg-accent"
+      className="group cursor-pointer border-b border-[color:var(--glass-border)] transition-colors last:border-0 hover:bg-accent/45"
     >
-      <td className="px-3 py-2">
+      <td className="relative px-3 py-2.5">
+        {/* Spring accent rail — transform-only, so it stays cheap and interruptible. */}
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-1.5 left-0 w-[2px] origin-center scale-y-0 rounded-full bg-primary transition-transform duration-200 [transition-timing-function:var(--ease-spring)] group-hover:scale-y-100"
+        />
         <span className="flex items-center gap-2">
-          <FileIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <FileIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary" />
           <a
             href={`/datasets/${d.id}`}
             onClick={(e) => {
               e.preventDefault();
               onOpen();
             }}
-            className="truncate font-medium text-foreground outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+            className="truncate font-medium text-foreground outline-none transition-transform duration-200 [transition-timing-function:var(--ease-spring)] group-hover:translate-x-0.5 hover:underline focus-visible:ring-2 focus-visible:ring-ring"
           >
             {d.name}
           </a>
@@ -176,32 +209,63 @@ function Row({ dataset: d, onOpen }: { dataset: DatasetSummary; onOpen: () => vo
           )}
         </span>
       </td>
-      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+      <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
         {failed || processing ? "—" : formatCount(d.rowCount)}
       </td>
-      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+      <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
         {failed || processing ? "—" : formatCount(d.columnCount)}
       </td>
       <ScoreCell score={d.qualityScore} label="Quality" status={d.status} />
       <ScoreCell score={d.trustScore} label="Trust" status={d.status} />
       <ScoreCell score={d.valueScore} label="Value" status={d.status} />
-      <td className="px-3 py-2">
+      <td className="px-3 py-2.5">
         {failed || processing ? <span className="text-muted-foreground">—</span> : <RecommendationBadge value={d.valueRecommendation} size="sm" />}
       </td>
-      <td className="px-3 py-2">
+      <td className="px-3 py-2.5">
         {failed || processing ? <span className="text-muted-foreground">—</span> : <SensitivityBadge level={d.highestSensitivity} size="sm" />}
       </td>
-      <td className="px-3 py-2 text-[13px] text-muted-foreground">
+      <ViewsCell count={d.accessCount} recent={d.accessCount90d} max={maxViews} />
+      <td className="px-3 py-2.5 text-[13px] text-muted-foreground">
         <time dateTime={d.lastAccessedAt ?? undefined} title={d.lastAccessedAt ?? "never accessed"}>
           {relativeTime(d.lastAccessedAt)}
         </time>
       </td>
-      <td className="px-3 py-2 text-right text-[13px] text-muted-foreground">
+      <td className="px-3 py-2.5 text-right text-[13px] text-muted-foreground">
         <time dateTime={d.uploadedAt} title={d.uploadedAt}>
           {relativeTime(d.uploadedAt)}
         </time>
       </td>
-    </tr>
+    </motion.tr>
+  );
+}
+
+/**
+ * Usage/view count. The numeral is the value; the bar behind it is a sequential
+ * magnitude cue (single hue, page-relative) so the busiest datasets pop while
+ * scanning. Deliberately not role="meter" — one screen-reader value per cell.
+ */
+function ViewsCell({ count, recent, max }: { count: number; recent: number; max: number }) {
+  return (
+    <td className="px-3 py-2.5">
+      <span
+        className="flex items-center justify-end gap-2"
+        title={`${formatCount(count)} total ${count === 1 ? "view" : "views"} · ${formatCount(recent)} in the last 90 days`}
+      >
+        <span
+          aria-hidden="true"
+          className="hidden h-1.5 w-10 shrink-0 overflow-hidden rounded-full lg:block"
+          style={{ background: "var(--gauge-track)" }}
+        >
+          <span
+            className="block h-full rounded-full"
+            style={{ width: `${(count / max) * 100}%`, background: "var(--score-band-2)" }}
+          />
+        </span>
+        <span className={cn("w-9 text-right text-[13px] tabular-nums", count > 0 ? "text-foreground" : "text-muted-foreground")}>
+          {count > 0 ? formatCompact(count) : "—"}
+        </span>
+      </span>
+    </td>
   );
 }
 
@@ -215,7 +279,7 @@ function ScoreCell({
   status: DatasetSummary["status"];
 }) {
   return (
-    <td className="px-3 py-2">
+    <td className="px-3 py-2.5">
       <ScoreGauge score={score} label={label} variant="inline" status={status} />
     </td>
   );
