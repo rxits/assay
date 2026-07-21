@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm --filter @assay/shared build && pnpm --filter @assay/api build && pnpm --filter @assay/web build",
+    "build": "pnpm --filter @assay/api build && pnpm --filter @assay/web build",
     "dev": "pnpm --parallel --filter @assay/api --filter @assay/web dev",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test"

@@ -1,0 +1,185 @@
+// @assay/shared — the wire contract imported by both apps/api and apps/web.
+// Enums mirror 00-SPEC §6/§8 exactly. String-literal unions (not TS `enum`) keep
+// them structurally identical to Prisma's generated enum strings and safe over the wire.
+// Source of record: docs/04-API-DESIGN.md §4 (copied verbatim).
+
+// ---- Enums (00-SPEC §6, §8) ----
+export type FileType = "CSV" | "XLSX";
+export type DatasetStatus = "PROCESSING" | "READY" | "FAILED";
+export type ValueRecommendation = "KEEP" | "OPTIMIZE" | "ARCHIVE" | "RETIRE";
+export type DataType =
+  | "STRING" | "INTEGER" | "FLOAT" | "BOOLEAN" | "DATE" | "DATETIME" | "UNKNOWN";
+export type PiiCategory =
+  | "EMAIL" | "PHONE" | "ID_NUMBER" | "CREDIT_CARD" | "DATE_OF_BIRTH"
+  | "NAME" | "ADDRESS" | "IP_ADDRESS" | "POSTAL_CODE" | "NONE" | "OTHER";
+export type Sensitivity = "NONE" | "LOW" | "MEDIUM" | "HIGH";
+export type TagSource = "AUTO_REGEX" | "AUTO_AI" | "MANUAL";
+export type QualityCheckType =
+  | "MISSING_VALUES" | "DUPLICATE_ROWS" | "INVALID_VALUES"
+  | "TYPE_MISMATCH" | "EMPTY_COLUMN" | "DUPLICATE_HEADER";
+export type Severity = "INFO" | "WARNING" | "ERROR";
+export type AccessType = "VIEW" | "DETAIL_VIEW" | "DOWNLOAD";
+export type AccessSource = "SEED" | "LIVE";
+
+// ---- Envelope & errors ----
+export interface ApiSuccess<T> { data: T; }
+export interface ApiCollection<T> { data: T[]; meta: PaginationMeta; }
+export interface PaginationMeta { total: number; limit: number; offset: number; count: number; }
+
+export type ApiErrorCode =
+  | "malformed_json" | "missing_file" | "unsupported_file_type" | "file_too_large"
+  | "empty_file" | "invalid_file" | "validation_error"
+  | "dataset_not_found" | "column_not_found" | "internal_error";
+
+export interface ApiError {
+  error: { code: ApiErrorCode; message: string; details?: FieldError[]; };
+}
+export interface FieldError { field: string; message: string; code: string; }
+
+// ---- Scoring (00-SPEC §9) ----
+export interface QualityBreakdown {
+  score: number;
+  inputs: { completeness: number; validity: number; uniqueness: number };
+  weights: { completeness: number; validity: number; uniqueness: number };
+}
+export interface TrustBreakdown {
+  score: number;
+  inputs: { quality: number; consistency: number; classificationCoverage: number };
+  weights: { quality: number; consistency: number; classificationCoverage: number };
+}
+export interface ValueBreakdown {
+  score: number;
+  inputs: { frequency: number; recency: number; trend: number };
+  weights: { frequency: number; recency: number; trend: number };
+  raw: {
+    accesses90d: number; accessesLast30: number; accessesPrev30: number;
+    daysSinceLastAccess: number; freqCap: number; halfLife: number;
+  };
+}
+export interface ScoreBreakdown {
+  quality: QualityBreakdown;
+  trust: TrustBreakdown;
+  value: ValueBreakdown;
+}
+
+// ---- Core entity DTOs ----
+export interface ClassificationTagDTO {
+  id: string;
+  category: PiiCategory;
+  sensitivity: Sensitivity;
+  source: TagSource;
+  confidence: number | null;
+  overridden: boolean;
+  createdAt: string;   // ISO-8601
+  updatedAt: string;
+}
+
+export interface ColumnDTO {
+  id: string;
+  name: string;
+  position: number;
+  dataType: DataType;
+  missingCount: number;
+  missingPct: number;        // 0–1
+  distinctCount: number;
+  completeness: number;      // 0–1
+  validity: number;          // 0–1
+  sampleValues: unknown[];   // ≤10 (00-SPEC §6)
+  classificationTag: ClassificationTagDTO | null;
+}
+
+export interface QualityCheckDTO {
+  id: string;
+  columnId: string | null;   // null = dataset-level
+  checkType: QualityCheckType;
+  severity: Severity;
+  affectedCount: number;
+  affectedPct: number;       // 0–1
+  detail: string;
+  createdAt: string;
+}
+
+export interface UsagePoint {
+  date: string;              // YYYY-MM-DD
+  total: number;
+  byType?: Record<AccessType, number>;
+}
+export interface UsageSeries {
+  datasetId: string;
+  from: string;              // YYYY-MM-DD
+  to: string;
+  series: UsagePoint[];
+  summary: {
+    accesses90d: number;
+    accessesLast30: number;
+    accessesPrev30: number;
+    lastAccessedAt: string | null;
+  };
+}
+
+/** Catalog list item & POST /datasets response. */
+export interface DatasetSummary {
+  id: string;
+  name: string;
+  originalFilename: string;
+  fileType: FileType;
+  sizeBytes: number;
+  rowCount: number;
+  columnCount: number;
+  status: DatasetStatus;
+  qualityScore: number | null;
+  trustScore: number | null;
+  valueScore: number | null;
+  valueRecommendation: ValueRecommendation | null;
+  piiColumnCount: number;               // derived: columns with sensitivity > NONE
+  highestSensitivity: Sensitivity | null; // derived: max column sensitivity (drives ?sensitivity filter & badge)
+  lastAccessedAt: string | null;        // derived
+  errorMessage: string | null;
+  uploadedAt: string;
+  updatedAt: string;
+}
+
+/** GET /datasets/:id — full nested detail. */
+export interface DatasetDetail extends DatasetSummary {
+  scoreBreakdown: ScoreBreakdown | null;   // null when FAILED
+  healthNarrative: string | null;
+  columns: ColumnDTO[];
+  qualityChecks: QualityCheckDTO[];
+  usage: UsageSeries;
+  sampleRows?: Record<string, unknown>[];  // capped ≤50 preview (00-SPEC §6)
+}
+
+// ---- Request DTOs ----
+/** POST /datasets — multipart: `file` part + optional `name` text field. */
+export interface UploadDatasetFields { name?: string; }
+
+/** PATCH …/classification body. */
+export interface ClassificationOverrideRequest {
+  category: PiiCategory;
+  sensitivity?: Sensitivity;  // defaults to category default (00-SPEC §8)
+}
+
+/** PATCH …/classification response. */
+export interface ClassificationOverrideResponse {
+  column: ColumnDTO;
+  dataset: Pick<DatasetSummary, "id" | "qualityScore" | "trustScore" | "valueScore" | "updatedAt">
+    & { scoreBreakdown: Pick<ScoreBreakdown, "trust"> };
+}
+
+/** GET /datasets query. */
+export interface CatalogQuery {
+  limit?: number;
+  offset?: number;
+  sort?: string;             // e.g. "-uploadedAt", "trustScore"
+  sensitivity?: Sensitivity;
+  recommendation?: ValueRecommendation;
+}
+
+/** GET /datasets/:id/usage query. */
+export interface UsageQuery { days?: number; type?: AccessType; }
+
+export interface HealthResponse {
+  status: "ok";
+  service: string;
+  timestamp: string;
+}
