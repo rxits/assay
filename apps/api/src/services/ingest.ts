@@ -8,16 +8,16 @@
 import type { Prisma } from "@prisma/client";
 import type { DatasetSummary, FileType, PiiCategory, Sensitivity, TagSource } from "@assay/shared";
 import { prisma } from "../lib/prisma";
+import { INGEST } from "../lib/config";
 import { parseFile, type ParsedFile } from "../lib/parsers";
 import { profileDataset, type ProfiledColumn } from "../domain/profile";
-import { classifyColumn } from "../domain/classification";
+import { classifyColumn, type ClassifyConfig } from "../domain/classification";
 import { detectQualityChecks } from "../domain/quality";
 import { scoreProfiledDataset } from "./scoring";
 import { anthropic, classifyColumnAI, generateHealthNarrative } from "../lib/anthropic";
 import { ApiHttpError } from "../lib/errors";
+import { getEffectiveSettings, toClassifyConfig, toScoringConfig } from "./settings";
 import { toDatasetSummary } from "./serialize";
-
-const SAMPLE_ROWS_CAP = 50; // 00-SPEC §6 / 03 §6: capped preview, never the raw file
 
 export interface IngestInput {
   buffer: Buffer;
@@ -78,13 +78,16 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
 
     const profile = profileDataset(parsed.headers, parsed.rows);
     const sampleRows = buildSampleRows(parsed.headers, parsed.rows);
+    // Operator overrides (R3) — the pure engines still default to the static config; the
+    // effective settings are passed in, never patched onto the module.
+    const settings = await getEffectiveSettings();
 
     // Classification (regex, refined by Claude for ambiguous columns only when a key is set).
     // Every column ends classified (incl. explicit NONE, 07 §9) → ClassificationCoverage 1.0.
-    const tags = await classifyColumns(profile.columns);
+    const tags = await classifyColumns(profile.columns, toClassifyConfig(settings));
     const checks = detectQualityChecks(profile);
     // No AccessEvents yet → Value is low/RETIRE by design (06 §8, R10); Phase 3 recomputes on read.
-    const scored = scoreProfiledDataset(profile, true, [], new Date());
+    const scored = scoreProfiledDataset(profile, true, [], new Date(), toScoringConfig(settings));
     const healthNarrative = await generateHealthNarrative(buildNarrativeSummary(name, profile, scored, tags));
 
     await prisma.$transaction(async (tx) => {
@@ -170,10 +173,10 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
 
 // Regex classification per column, refined by Claude Haiku only for genuinely-ambiguous
 // columns AND only when a key is configured (07 §6.1). No key ⇒ pure regex (the tested default).
-async function classifyColumns(columns: ProfiledColumn[]): Promise<DraftTag[]> {
+async function classifyColumns(columns: ProfiledColumn[], cfg: ClassifyConfig): Promise<DraftTag[]> {
   return Promise.all(
     columns.map(async (c): Promise<DraftTag> => {
-      const r = classifyColumn({ header: c.name, sampleValues: c.sampleValues });
+      const r = classifyColumn({ header: c.name, sampleValues: c.sampleValues }, cfg);
       if (r.needsAi && anthropic) {
         const ai = await classifyColumnAI(c.name, c.sampleValues);
         if (ai) {
@@ -205,7 +208,7 @@ function buildNarrativeSummary(
 
 function buildSampleRows(headers: string[], rows: (string | null)[][]): Record<string, unknown>[] {
   const keys = disambiguate(headers);
-  return rows.slice(0, SAMPLE_ROWS_CAP).map((row) => {
+  return rows.slice(0, INGEST.sampleRowsCap).map((row) => {
     const obj: Record<string, unknown> = {};
     keys.forEach((key, i) => {
       obj[key] = row[i] ?? null;

@@ -12,14 +12,17 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { PiiCategory, Sensitivity } from "@assay/shared";
 import { DEFAULT_SENSITIVITY } from "../domain/classification";
+import { CLASSIFY } from "./config";
 
 const key = process.env.ANTHROPIC_API_KEY;
 
 /** null ⇒ AI disabled (no key). Callers treat this as "use regex" (07 §6.1). */
 export const anthropic = key ? new Anthropic({ apiKey: key }) : null;
 
-const MODEL = "claude-haiku-4-5-20251001";
-const AI_SAMPLE_SIZE = 10;
+/** Pinned by 00-SPEC §8 / 07 §6. Exported so GET /api/system can name the provider model. */
+export const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+const MODEL = ANTHROPIC_MODEL;
+const AI_SAMPLE_SIZE = CLASSIFY.AI_SAMPLE_SIZE;
 
 const CATEGORIES: PiiCategory[] = [
   "EMAIL", "PHONE", "ID_NUMBER", "CREDIT_CARD", "DATE_OF_BIRTH",

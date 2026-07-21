@@ -216,3 +216,63 @@ export interface HealthResponse {
   service: string;
   timestamp: string;
 }
+
+// ---- App settings (R3) --------------------------------------------------
+// The tunables an operator may override at runtime. Mirrors apps/api/src/lib/config.ts
+// (06 §3 / 07 §0) minus the constants the UI keeps read-only. Every weight set must
+// sum to 1.0 (±0.001) — enforced by the PATCH schema, mirrored by the form.
+export interface QualityWeights { completeness: number; validity: number; uniqueness: number }
+export interface TrustWeights { quality: number; consistency: number; classificationCoverage: number }
+export interface ValueWeights { frequency: number; recency: number; trend: number }
+export interface RecommendThresholds { retireBelow: number; archiveBelow: number; optimizeBelow: number }
+
+export interface AppSettings {
+  quality: QualityWeights;
+  trust: TrustWeights;
+  value: ValueWeights;
+  classifyThreshold: number;   // 0–1 value-match share to auto-classify
+  freqCap: number;             // accesses at which Frequency saturates
+  halfLifeDays: number;        // Recency decay half-life
+  recommend: RecommendThresholds;
+  sensitivity: Record<PiiCategory, Sensitivity>; // default sensitivity per PII category
+}
+
+/** Top-level keys of AppSettings — the unit of "default vs overridden". */
+export type AppSettingsKey = keyof AppSettings;
+
+/** GET/PATCH/POST-reset /api/settings response. */
+export interface AppSettingsResponse {
+  settings: AppSettings;       // effective = persisted overrides merged over config defaults
+  defaults: AppSettings;       // the static config, for "reset" affordances and diffing
+  overridden: AppSettingsKey[];// which top-level keys carry a persisted override
+  updatedAt: string | null;    // when the override row was last written
+}
+
+/** PATCH /api/settings body — any subset; each present key replaces wholesale. */
+export type AppSettingsPatch = Partial<AppSettings>;
+
+/** POST /api/settings/recompute response. */
+export interface RecomputeResult {
+  updated: number;      // datasets rescored with the effective settings
+  skipped: number;      // datasets without a stored breakdown (FAILED/PROCESSING)
+  tagsUpdated: number;  // non-overridden classification tags re-mapped to the sensitivity map
+}
+
+/** GET /api/system — health, connectivity, provider state, caps, versions. */
+export interface SystemStatus {
+  api: { status: "ok"; service: string; env: string; uptimeSeconds: number };
+  database: { connected: boolean; latencyMs: number | null; datasetCount: number | null };
+  llm: { state: "configured" | "regex-fallback"; model: string };
+  ingestion: {
+    maxUploadMb: number;      // env-driven (MAX_UPLOAD_MB)
+    sampleRowsCap: number;    // preview rows persisted per dataset
+    sampleValuesCap: number;  // distinct example values persisted per column
+    classifySampleSize: number; // values sampled per column for value-pattern matching
+    aiSampleSize: number;     // values sent to the LLM for an ambiguous column
+    xlsxFirstSheetOnly: true;
+  };
+  versions: { api: string; node: string; prisma: string };
+}
+
+/** POST /api/data/reseed and DELETE /api/data/datasets. */
+export interface DataMutationResult { datasets: number }

@@ -11,6 +11,17 @@ export interface ClassifyInput {
   sampleValues: string[];
 }
 
+/**
+ * The classification tunables an operator may override at runtime (R3). Passed as this
+ * module's optional trailing parameter so the engine stays pure and every existing call
+ * site keeps the spec defaults. AMBIGUOUS_MIN / HEADER_CONFIDENCE stay static — they are
+ * detector internals, not policy.
+ */
+export interface ClassifyConfig {
+  readonly classifyThreshold: number;
+  readonly sensitivity: Readonly<Record<PiiCategory, Sensitivity>>;
+}
+
 export interface ClassifyResult {
   category: PiiCategory;
   sensitivity: Sensitivity;
@@ -33,6 +44,12 @@ export const DEFAULT_SENSITIVITY: Record<PiiCategory, Sensitivity> = {
   POSTAL_CODE: "LOW",
   OTHER: "LOW",
   NONE: "NONE",
+};
+
+/** The static default: spec threshold + the spec sensitivity map. */
+export const defaultClassifyConfig: ClassifyConfig = {
+  classifyThreshold: CLASSIFY.CLASSIFY_THRESHOLD,
+  sensitivity: DEFAULT_SENSITIVITY,
 };
 
 // --- Signal A: header-name heuristics (07 §3) ----------------------------
@@ -156,34 +173,34 @@ interface Draft {
   source: TagSource;
 }
 
-const tag = (category: PiiCategory, confidence: number | null): Draft => ({
+const tag = (category: PiiCategory, confidence: number | null, cfg: ClassifyConfig): Draft => ({
   category,
-  sensitivity: DEFAULT_SENSITIVITY[category],
+  sensitivity: cfg.sensitivity[category],
   confidence,
   source: "AUTO_REGEX",
 });
 
-function resolveTag(header: string, sample: string[]): Draft | "AMBIGUOUS" {
+function resolveTag(header: string, sample: string[], cfg: ClassifyConfig): Draft | "AMBIGUOUS" {
   const h = headerCategory(header);
   const { best, share } = bestValueCategory(sample, h);
 
   // 1. Decisive value evidence (≥ threshold): values win, unless two strong signals disagree.
-  if (best && share >= CLASSIFY.CLASSIFY_THRESHOLD) {
+  if (best && share >= cfg.classifyThreshold) {
     if (h && h !== best && isStrong(h) && isStrong(best)) return "AMBIGUOUS";
-    return tag(best, share);
+    return tag(best, share, cfg);
   }
 
   // 2. Header hint, values did not confirm.
   if (h) {
     if (isStrong(h) && share >= CLASSIFY.AMBIGUOUS_MIN) return "AMBIGUOUS"; // partial 0.30–0.70 on a strong cat
-    return tag(h, CLASSIFY.HEADER_CONFIDENCE); // weak-value cats (NAME/ADDRESS) resolve on header alone
+    return tag(h, CLASSIFY.HEADER_CONFIDENCE, cfg); // weak-value cats (NAME/ADDRESS) resolve on header alone
   }
 
   // 3. No header, partial value signal → ambiguous.
   if (share >= CLASSIFY.AMBIGUOUS_MIN) return "AMBIGUOUS";
 
   // 4. No signal at all → explicit NONE (counts toward ClassificationCoverage — 07 §5).
-  return tag("NONE", null);
+  return tag("NONE", null, cfg);
 }
 
 /**
@@ -191,8 +208,11 @@ function resolveTag(header: string, sample: string[]): Draft | "AMBIGUOUS" {
  * An ambiguous column returns a regex best-guess with `needsAi: true` (fallback order §6.5:
  * value-band winner → header category → NONE); Phase 2B may overwrite it with Claude Haiku.
  */
-export function classifyColumn({ header, sampleValues }: ClassifyInput): ClassifyResult {
-  const draft = resolveTag(header, sampleValues);
+export function classifyColumn(
+  { header, sampleValues }: ClassifyInput,
+  cfg: ClassifyConfig = defaultClassifyConfig,
+): ClassifyResult {
+  const draft = resolveTag(header, sampleValues, cfg);
   if (draft !== "AMBIGUOUS") return { ...draft, needsAi: false };
 
   const h = headerCategory(header);
@@ -202,7 +222,7 @@ export function classifyColumn({ header, sampleValues }: ClassifyInput): Classif
   const confidence = useValue ? share : h ? CLASSIFY.HEADER_CONFIDENCE : null;
   return {
     category: guess,
-    sensitivity: DEFAULT_SENSITIVITY[guess],
+    sensitivity: cfg.sensitivity[guess],
     confidence,
     source: "AUTO_REGEX",
     needsAi: true,

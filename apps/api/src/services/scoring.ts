@@ -12,7 +12,7 @@ import {
   type AccessEvent,
   type DatasetProfile as ScoringProfile,
 } from "../domain/scoring";
-import { config } from "../lib/config";
+import { config, type ScoringConfig } from "../lib/config";
 
 export interface ScoredDataset {
   qualityScore: number;
@@ -33,6 +33,7 @@ export function scoreProfiledDataset(
   allClassified: boolean,
   events: AccessEvent[],
   now: Date,
+  cfg: ScoringConfig = config,
 ): ScoredDataset {
   const scoringProfile: ScoringProfile = {
     rowCount: profile.rowCount,
@@ -51,18 +52,23 @@ export function scoreProfiledDataset(
     })),
   };
 
-  const { quality, trust, value } = scoreDataset(scoringProfile, events, now);
+  const { quality, trust, value } = scoreDataset(scoringProfile, events, now, cfg);
   return {
     qualityScore: quality.score,
     trustScore: trust.score,
     valueScore: value.score,
     valueRecommendation: value.recommendation,
-    scoreBreakdown: toWireBreakdown(quality, trust, value),
+    scoreBreakdown: toWireBreakdown(quality, trust, value, cfg),
   };
 }
 
 /** Flatten domain {value,weight,contribution} components into the wire {inputs,weights} DTO. */
-export function toWireBreakdown(q: QualityResult, t: TrustResult, v: ValueResult): WireScoreBreakdown {
+export function toWireBreakdown(
+  q: QualityResult,
+  t: TrustResult,
+  v: ValueResult,
+  cfg: ScoringConfig = config,
+): WireScoreBreakdown {
   return {
     quality: {
       score: q.score,
@@ -82,8 +88,9 @@ export function toWireBreakdown(q: QualityResult, t: TrustResult, v: ValueResult
       t.components.consistency.value,
       t.components.classificationCoverage.value,
       t.score,
+      cfg,
     ),
-    value: valueBreakdown(v),
+    value: valueBreakdown(v, cfg),
   };
 }
 
@@ -93,7 +100,7 @@ export function toWireBreakdown(q: QualityResult, t: TrustResult, v: ValueResult
  * live-tracked one persist an identical shape — the Value block is spliced into the stored
  * breakdown on every recompute.
  */
-export function valueBreakdown(v: ValueResult): WireScoreBreakdown["value"] {
+export function valueBreakdown(v: ValueResult, cfg: ScoringConfig = config): WireScoreBreakdown["value"] {
   return {
     score: v.score,
     inputs: {
@@ -112,8 +119,8 @@ export function valueBreakdown(v: ValueResult): WireScoreBreakdown["value"] {
       accessesPrev30: v.inputs.accessesPrev30,
       // Wire DTO is non-nullable; never-accessed (null) renders as 0 (Recency already 0).
       daysSinceLastAccess: v.inputs.daysSinceLastAccess ?? 0,
-      freqCap: config.freqCap,
-      halfLife: config.halfLifeDays,
+      freqCap: cfg.freqCap,
+      halfLife: cfg.halfLifeDays,
     },
   };
 }
@@ -129,8 +136,9 @@ export function trustBreakdown(
   consistency: number,
   classificationCoverage: number,
   score?: number,
+  cfg: ScoringConfig = config,
 ): WireScoreBreakdown["trust"] {
-  const w = config.trust;
+  const w = cfg.trust;
   return {
     score:
       score ??

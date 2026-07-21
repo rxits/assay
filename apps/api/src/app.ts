@@ -6,6 +6,7 @@ import cors from "cors";
 import type { ApiError } from "@assay/shared";
 import { healthRouter } from "./routes/health";
 import { datasetsRouter } from "./routes/datasets";
+import { settingsRouter } from "./routes/settings";
 import { ApiHttpError } from "./lib/errors";
 
 export function createApp(): Express {
@@ -16,6 +17,7 @@ export function createApp(): Express {
 
   app.use("/api", healthRouter);
   app.use("/api", datasetsRouter);
+  app.use("/api", settingsRouter);
 
   app.use(errorHandler);
 

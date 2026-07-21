@@ -2,6 +2,23 @@
 // classification constants (07 §0), and the upload cap. Weights per score sum to 1
 // (asserted by the scoring engine's self-check in Phase 2).
 
+/**
+ * The shape of every scoring tunable. `config` below is the static default; the settings
+ * service (R3) builds an *effective* config from persisted overrides and passes it into the
+ * pure engines as their optional trailing parameter. The module-level `config` is never mutated.
+ */
+export interface ScoringConfig {
+  readonly quality: { readonly completeness: number; readonly validity: number; readonly uniqueness: number };
+  readonly trust: { readonly quality: number; readonly consistency: number; readonly classificationCoverage: number };
+  readonly value: { readonly frequency: number; readonly recency: number; readonly trend: number };
+  readonly classifyThreshold: number;
+  readonly freqCap: number;
+  readonly halfLifeDays: number;
+  readonly structuralPenaltyPerIssue: number;
+  readonly structuralPenaltyCap: number;
+  readonly recommend: { readonly retireBelow: number; readonly archiveBelow: number; readonly optimizeBelow: number };
+}
+
 export const config = {
   // --- score weight sets (00-SPEC §9) ---
   quality: { completeness: 0.40, validity: 0.30, uniqueness: 0.30 },
@@ -19,7 +36,7 @@ export const config = {
 
   // --- Value → recommendation thresholds (00-SPEC §9 table) ---
   recommend: { retireBelow: 15, archiveBelow: 35, optimizeBelow: 60 },
-} as const;
+} as const satisfies ScoringConfig;
 
 // Classification tuning (07 §0). `CLASSIFY_THRESHOLD` mirrors config.classifyThreshold
 // (spec-pinned); the rest are implementation fill-ins the spec leaves open.
@@ -29,6 +46,14 @@ export const CLASSIFY = {
   AI_SAMPLE_SIZE: 10, // [tunable] values sent to Claude (reuse Column.sampleValues, ≤10)
   HEADER_CONFIDENCE: 0.60, // [tunable] confidence when only the header name matches
   AMBIGUOUS_MIN: 0.30, // [tunable] partial value-share (0.30–0.70) that marks a column "ambiguous"
+} as const;
+
+// Ingestion caps (00-SPEC §6 / 03 §6) — what a dataset persists beyond its profile.
+// Structural, not tunable at runtime: they bound stored PII, so GET /api/system reports
+// them read-only rather than exposing them as settings.
+export const INGEST = {
+  sampleRowsCap: 50, // preview rows persisted per dataset
+  sampleValuesCap: 10, // distinct example values persisted per column
 } as const;
 
 // Upload cap (04 §2.2), enforced via multer `limits.fileSize`.

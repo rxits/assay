@@ -137,6 +137,16 @@ model ScoreSnapshot {
   @@index([datasetId, capturedAt])
 }
 
+/// Singleton row holding runtime overrides for the scoring/classification tunables
+/// that otherwise come from src/lib/config.ts. `id` is pinned to "singleton" so the
+/// table can never hold a second row; `payload` is a partial AppSettings (absent key =
+/// use the code default), which keeps adding a new tunable a code change, not a migration.
+model AppSettings {
+  id        String   @id @default("singleton")
+  payload   Json     @default("{}")
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
+
 // ───────────────────────────── Enums ──────────────────────────────
 
 enum FileType {

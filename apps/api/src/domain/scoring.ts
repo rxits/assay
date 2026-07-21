@@ -7,8 +7,9 @@ import type { DataType, ValueRecommendation } from "@assay/shared";
 
 // All tunable constants live in one file (06 §3); re-exported so callers/tests
 // import `config` from the engine per 06 §10.
-import { config } from "../lib/config";
+import { config, type ScoringConfig } from "../lib/config";
 export { config };
+export type { ScoringConfig };
 
 // --- Branded [0,1] scalar (06 §2a) ---------------------------------------
 /** A scalar guaranteed to lie in [0,1]. Constructed only via unit(). */
@@ -100,9 +101,26 @@ const scoreOf = (comps: ScoreComponent[]): Score => comps.reduce((s, c) => s + c
 const DAY_MS = 86_400_000;
 
 // --- Quality (06 §4) ------------------------------------------------------
-export function computeQuality(profile: DatasetProfile): QualityResult {
+/**
+ * Weight the three already-derived Quality inputs. Split out of computeQuality so the
+ * settings recompute (R3) can re-weight a *stored* breakdown — whose component values are
+ * properties of the data, not of the weights — without re-reading the original file.
+ */
+export function qualityFromComponents(
+  inputs: { completeness: Unit; validity: Unit; uniqueness: Unit },
+  cfg: ScoringConfig = config,
+): QualityResult {
+  const w = cfg.quality;
+  const components = {
+    completeness: component(inputs.completeness, w.completeness),
+    validity: component(inputs.validity, w.validity),
+    uniqueness: component(inputs.uniqueness, w.uniqueness),
+  };
+  return { score: scoreOf(Object.values(components)), components };
+}
+
+export function computeQuality(profile: DatasetProfile, cfg: ScoringConfig = config): QualityResult {
   const { rowCount, duplicateRowCount, columns } = profile;
-  const w = config.quality;
 
   let completeness: Unit;
   let validity: Unit;
@@ -119,42 +137,55 @@ export function computeQuality(profile: DatasetProfile): QualityResult {
     uniqueness = unit(1 - duplicateRowCount / rowCount);
   }
 
-  const components = {
-    completeness: component(completeness, w.completeness),
-    validity: component(validity, w.validity),
-    uniqueness: component(uniqueness, w.uniqueness),
-  };
-  return { score: scoreOf(Object.values(components)), components };
+  return qualityFromComponents({ completeness, validity, uniqueness }, cfg);
 }
 
 // --- Trust ⊇ Quality (06 §5) ----------------------------------------------
-export function computeTrust(quality: QualityResult, profile: DatasetProfile): TrustResult {
+/** Weight the three already-derived Trust inputs (see qualityFromComponents for the why). */
+export function trustFromComponents(
+  inputs: { quality: Unit; consistency: Unit; classificationCoverage: Unit },
+  detail: TrustResult["consistencyDetail"],
+  cfg: ScoringConfig = config,
+): TrustResult {
+  const w = cfg.trust;
+  const components = {
+    quality: component(inputs.quality, w.quality),
+    consistency: component(inputs.consistency, w.consistency),
+    classificationCoverage: component(inputs.classificationCoverage, w.classificationCoverage),
+  };
+  return { score: scoreOf(Object.values(components)), components, consistencyDetail: detail };
+}
+
+export function computeTrust(
+  quality: QualityResult,
+  profile: DatasetProfile,
+  cfg: ScoringConfig = config,
+): TrustResult {
   const { columns, structuralIssues } = profile;
-  const w = config.trust;
 
   // Fully-missing column → dominantTypeShare := 1 (vacuous, 06 §8).
   const meanDominantTypeShare = unit(mean(columns.map((c) => (c.nonNullCount === 0 ? 1 : c.dominantTypeShare))));
   const distinctIssues = new Set(structuralIssues).size;
-  const structuralPenalty = unit(Math.min(config.structuralPenaltyCap, config.structuralPenaltyPerIssue * distinctIssues));
+  const structuralPenalty = unit(Math.min(cfg.structuralPenaltyCap, cfg.structuralPenaltyPerIssue * distinctIssues));
   const consistency = unit(meanDominantTypeShare * (1 - structuralPenalty));
   const classificationCoverage = unit(columns.length === 0 ? 0 : columns.filter((c) => c.isClassified).length / columns.length);
   const qualityUnit = unit(quality.score / 100);
 
-  const components = {
-    quality: component(qualityUnit, w.quality),
-    consistency: component(consistency, w.consistency),
-    classificationCoverage: component(classificationCoverage, w.classificationCoverage),
-  };
-  return {
-    score: scoreOf(Object.values(components)),
-    components,
-    consistencyDetail: { meanDominantTypeShare, structuralPenalty, structuralIssues: [...structuralIssues] },
-  };
+  return trustFromComponents(
+    { quality: qualityUnit, consistency, classificationCoverage },
+    { meanDominantTypeShare, structuralPenalty, structuralIssues: [...structuralIssues] },
+    cfg,
+  );
 }
 
 // --- Value → recommendation (06 §7), total, first-match-wins --------------
-export function recommend(score: Score, accesses90d: number, trend: Unit): ValueRecommendation {
-  const { retireBelow, archiveBelow, optimizeBelow } = config.recommend;
+export function recommend(
+  score: Score,
+  accesses90d: number,
+  trend: Unit,
+  cfg: ScoringConfig = config,
+): ValueRecommendation {
+  const { retireBelow, archiveBelow, optimizeBelow } = cfg.recommend;
   const isDeclining = trend < 0.5;
   if (accesses90d === 0 || score < retireBelow) return "RETIRE";
   if (score < archiveBelow && isDeclining) return "ARCHIVE";
@@ -163,8 +194,8 @@ export function recommend(score: Score, accesses90d: number, trend: Unit): Value
 }
 
 // --- Value ⟂ Quality (06 §6) ----------------------------------------------
-export function computeValue(events: AccessEvent[], now: Date): ValueResult {
-  const w = config.value;
+export function computeValue(events: AccessEvent[], now: Date, cfg: ScoringConfig = config): ValueResult {
+  const w = cfg.value;
   const nowMs = now.getTime();
 
   let accesses90d = 0;
@@ -181,8 +212,8 @@ export function computeValue(events: AccessEvent[], now: Date): ValueResult {
   // max(0, …) guards clock-skew / future-dated seed events (06 §6).
   const daysSinceLastAccess = events.length === 0 ? null : Math.max(0, (nowMs - maxOccurred) / DAY_MS);
 
-  const frequency = unit(Math.log1p(accesses90d) / Math.log1p(config.freqCap));
-  const recency = unit(daysSinceLastAccess === null ? 0 : Math.exp(-daysSinceLastAccess / config.halfLifeDays));
+  const frequency = unit(Math.log1p(accesses90d) / Math.log1p(cfg.freqCap));
+  const recency = unit(daysSinceLastAccess === null ? 0 : Math.exp(-daysSinceLastAccess / cfg.halfLifeDays));
   const trend = unit(0.5 + (accessesLast30 - accessesPrev30) / (2 * Math.max(1, accessesPrev30)));
 
   const components = {
@@ -193,7 +224,7 @@ export function computeValue(events: AccessEvent[], now: Date): ValueResult {
   const score = scoreOf(Object.values(components));
   return {
     score,
-    recommendation: recommend(score, accesses90d, trend),
+    recommendation: recommend(score, accesses90d, trend, cfg),
     components,
     inputs: { accesses90d, accessesLast30, accessesPrev30, daysSinceLastAccess, isDeclining: trend < 0.5 },
   };
@@ -204,9 +235,10 @@ export function scoreDataset(
   profile: DatasetProfile,
   events: AccessEvent[],
   now: Date,
+  cfg: ScoringConfig = config,
 ): { quality: QualityResult; trust: TrustResult; value: ValueResult; breakdown: ScoreBreakdown } {
-  const quality = computeQuality(profile);
-  const trust = computeTrust(quality, profile);
-  const value = computeValue(events, now);
+  const quality = computeQuality(profile, cfg);
+  const trust = computeTrust(quality, profile, cfg);
+  const value = computeValue(events, now, cfg);
   return { quality, trust, value, breakdown: { quality, trust, value } };
 }
