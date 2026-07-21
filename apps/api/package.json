@@ -18,12 +18,18 @@
     "@assay/shared": "workspace:*",
     "@prisma/client": "^5.22.0",
     "cors": "^2.8.5",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "multer": "^2.2.0",
+    "papaparse": "^5.5.4",
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
+    "@types/multer": "^2.2.0",
     "@types/node": "^22.10.2",
+    "@types/papaparse": "^5.5.2",
     "@types/supertest": "^6.0.2",
     "prisma": "^5.22.0",
     "supertest": "^7.0.0",
