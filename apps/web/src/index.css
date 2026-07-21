@@ -7,6 +7,7 @@
    semantic layer is themed; the light/dark swap is driven by the `.dark` class. */
 @layer base {
   :root {
+    color-scheme: light; /* themes native controls (selects, scrollbars) to match */
     --background: 60 14% 97%;
     --foreground: 0 0% 4%;
     --card: 60 14% 99%;
@@ -53,6 +54,7 @@
   }
 
   .dark {
+    color-scheme: dark; /* native <select> dropdowns + scrollbars follow dark mode */
     --background: 0 0% 5%;
     --foreground: 0 0% 100%;
     --card: 60 2% 10%;
