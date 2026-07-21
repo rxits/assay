@@ -27,6 +27,29 @@
     --input: 45 13% 88%;
     --ring: 213 68% 50%;
     --radius: 0.5rem;
+
+    /* Motion tokens — 05 §2.7. */
+    --dur-fast: 120ms;
+    --dur-base: 200ms;
+    --dur-slow: 320ms;
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+    /* Data-colour scales — 05 §3 (reserved, validated; raw hex lives ONLY here,
+       never in a component — 05 §2.1). Score ramp is single-hue blue by band,
+       light mode (05 §3.1). */
+    --score-band-0: #86b6ef; /* 0–24   */
+    --score-band-1: #5598e7; /* 25–49  */
+    --score-band-2: #2a78d6; /* 50–74  */
+    --score-band-3: #1c5cab; /* 75–89  */
+    --score-band-4: #104281; /* 90–100 */
+    --gauge-track: #cde2fb; /* ramp step-100 (05 §3.1) */
+
+    /* Status hues — 05 §3.2–3.4. Mode-invariant; always paired with icon+word. */
+    --status-good: #0ca30c;
+    --status-warning: #fab219;
+    --status-critical: #d03b3b;
+    --status-muted: #898781;
   }
 
   .dark {
@@ -49,6 +72,14 @@
     --border: 60 2% 17%;
     --input: 60 2% 17%;
     --ring: 213 77% 56%;
+
+    /* Score ramp — dark mode (05 §3.1): clamped so even a low score stays ≥2:1. */
+    --score-band-0: #184f95;
+    --score-band-1: #1c5cab;
+    --score-band-2: #256abf;
+    --score-band-3: #3987e5;
+    --score-band-4: #86b6ef;
+    --gauge-track: hsl(var(--border));
   }
 
   * {
@@ -57,5 +88,45 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+/* Indeterminate PROCESSING bar (05 §4.1/§4.3) + gauge spinner. */
+@keyframes assay-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+@layer components {
+  /* A thin track whose primary-coloured segment sweeps across — used for
+     PROCESSING score cells and the upload "Profiling…" state. */
+  .assay-indeterminate {
+    position: relative;
+    overflow: hidden;
+  }
+  .assay-indeterminate::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 40%;
+    border-radius: inherit;
+    background: hsl(var(--primary));
+    animation: assay-indeterminate 1.15s var(--ease-standard) infinite;
+  }
+}
+
+/* 05 §2.7 / §8 — reduced motion zeroes every duration; gauges render final. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
