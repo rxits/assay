@@ -15,6 +15,7 @@ import {
   PanelLeft,
   PanelLeftClose,
   Search,
+  Settings,
   Table2,
   Upload,
   X,
@@ -33,6 +34,7 @@ const HAIRLINE = "border-[color:var(--glass-border)]";
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/catalog", label: "Catalog", icon: Table2, end: false },
+  { to: "/settings", label: "Settings", icon: Settings, end: false },
 ] as const;
 
 // ---- Cursor spotlight ----------------------------------------------------

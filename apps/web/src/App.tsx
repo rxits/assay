@@ -3,6 +3,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { CatalogPage } from "@/pages/CatalogPage";
 import { DatasetDetailPage } from "@/pages/DatasetDetailPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 
 export function App() {
   return (
@@ -12,6 +13,7 @@ export function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/catalog" element={<CatalogPage />} />
           <Route path="/datasets/:id" element={<DatasetDetailPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

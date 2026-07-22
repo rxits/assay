@@ -129,6 +129,12 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
   }
+
+  /* Anchor jumps (Settings' section nav) glide instead of teleporting, so the reader
+     keeps their place. Both reduced-motion triggers below force it back to `auto`. */
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 /* Indeterminate PROCESSING bar (05 §4.1/§4.3) + gauge spinner. */
