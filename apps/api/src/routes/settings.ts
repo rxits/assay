@@ -7,9 +7,17 @@ import { prisma } from "../lib/prisma";
 import { CLASSIFY, INGEST, MAX_UPLOAD_MB } from "../lib/config";
 import { LLM_MODEL, llm } from "../lib/llm";
 import { deleteAllDatasets, seedDemoData } from "../services/demo";
+import { requireAdmin } from "../lib/security";
 import { getSettings, patchSettings, recomputeAllScores, resetSettings } from "../services/settings";
 
 export const settingsRouter = Router();
+
+// `requireAdmin` is ALSO mounted by prefix in app.ts, and that alone was not enough: a prefix
+// mount compares the raw path as a string, so `/api//settings` failed to match `/api/settings`
+// and skipped the gate — while Express's own route matcher, which is lenient about repeated
+// slashes, still selected the handler. Two matchers disagreeing about one character, with the
+// security one failing OPEN. Listing the gate on each mutating route makes the match that
+// selects the route the same match that runs the gate, which closes the whole class.
 
 // Handlers are async; Express 4 doesn't await them, so every one funnels rejections into next().
 const handle =
@@ -29,6 +37,7 @@ settingsRouter.get(
 // PATCH /api/settings — partial update; weight sets that don't sum to 1.0 → 422.
 settingsRouter.patch(
   "/settings",
+  requireAdmin,
   handle(async (req, res) => {
     res.json({ data: await patchSettings(req.body) });
   }),
@@ -37,6 +46,7 @@ settingsRouter.patch(
 // POST /api/settings/reset — drop every override.
 settingsRouter.post(
   "/settings/reset",
+  requireAdmin,
   handle(async (_req, res) => {
     res.json({ data: await resetSettings() });
   }),
@@ -45,6 +55,7 @@ settingsRouter.post(
 // POST /api/settings/recompute — re-score the whole catalog with the effective settings.
 settingsRouter.post(
   "/settings/recompute",
+  requireAdmin,
   handle(async (_req, res) => {
     res.json({ data: await recomputeAllScores() });
   }),
@@ -96,6 +107,7 @@ settingsRouter.get(
 // POST /api/data/reseed — re-run the committed demo catalog through the real pipeline.
 settingsRouter.post(
   "/data/reseed",
+  requireAdmin,
   handle(async (_req, res) => {
     const result = await seedDemoData();
     res.json({ data: { datasets: result.datasets } satisfies DataMutationResult });
@@ -105,6 +117,7 @@ settingsRouter.post(
 // DELETE /api/data/datasets — danger zone; the UI gates it behind a typed confirmation.
 settingsRouter.delete(
   "/data/datasets",
+  requireAdmin,
   handle(async (_req, res) => {
     res.json({ data: (await deleteAllDatasets()) satisfies DataMutationResult });
   }),

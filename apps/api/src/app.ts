@@ -20,6 +20,22 @@ export function createApp(): Express {
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
 
+  // Collapse repeated slashes before anything routes on the path. Express's route matcher
+  // tolerates `/api//data/datasets` and happily selects the handler, but a prefix-mounted
+  // `app.use("/api/data", …)` compares strings and does not match — so the admin gate was
+  // skipped while the route still ran. That is fixed at each route below; this normalizes
+  // the input so no *future* prefix-mounted middleware can be walked around the same way.
+  // Only the path is normalized — `req.url` carries the query string too, and collapsing
+  // slashes there would rewrite a value like `?source=https://example.com`.
+  app.use((req, _res, next) => {
+    const queryAt = req.url.indexOf("?");
+    const path = queryAt === -1 ? req.url : req.url.slice(0, queryAt);
+    if (path.includes("//")) {
+      req.url = path.replace(/\/{2,}/g, "/") + (queryAt === -1 ? "" : req.url.slice(queryAt));
+    }
+    next();
+  });
+
   app.use(helmet());
   app.use(cors({ origin: corsOrigins(), methods: ["GET", "POST", "PATCH", "DELETE"] }));
   // Bodies here are settings patches and classification overrides — a few hundred bytes.

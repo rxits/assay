@@ -228,6 +228,29 @@ describe("admin gate (ADMIN_TOKEN set)", () => {
     }
   });
 
+  // Regression: a prefix-mounted `app.use("/api/data", requireAdmin)` compares the raw path
+  // as a string, so `/api//data/datasets` missed the gate — while Express's route matcher,
+  // which tolerates repeated slashes, still selected the handler and ran it. An anonymous
+  // DELETE wiped the entire deployed catalog through that one extra character.
+  it("refuses mutations reached through a non-canonical path", async () => {
+    const uploaded = await upload();
+    for (const send of [
+      () => request(app).delete("/api//data/datasets"),
+      () => request(app).delete("/api///data//datasets"),
+      () => request(app).patch("/api//settings").send({ freqCap: 5 }),
+      () => request(app).post("/api//data/reseed"),
+      () => request(app).post("/api//settings/reset"),
+      () => request(app).post("/api//settings/recompute"),
+    ]) {
+      const res = await send();
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe("admin_token_required");
+    }
+    // The gate refused, so the danger-zone delete never ran.
+    expect(await prisma.dataset.count()).toBe(1);
+    expect(uploaded.id).toEqual(expect.any(String));
+  });
+
   it("refuses a wrong token, including one of a different length", async () => {
     for (const bad of ["nope", `${TOKEN}x`, TOKEN.slice(0, -1)]) {
       const res = await request(app).delete("/api/data/datasets").set("x-admin-token", bad).expect(401);
