@@ -47,18 +47,31 @@ Note your Neon **region** — match it in step 2.
 **Build Command**
 
 ```
-corepack enable && pnpm install --frozen-lockfile && pnpm --filter ./apps/api exec prisma generate && pnpm --filter ./apps/api exec prisma migrate deploy && pnpm --filter ./apps/api exec prisma db seed && pnpm --filter ./apps/api build
+mkdir -p "$HOME/.local/bin" && corepack enable --install-directory "$HOME/.local/bin" && export PATH="$HOME/.local/bin:$PATH" && pnpm install --frozen-lockfile && pnpm --filter ./apps/api exec prisma migrate deploy && pnpm --filter ./apps/api exec prisma db seed && pnpm --filter ./apps/api build
 ```
+
+`--install-directory` is not optional. A bare `corepack enable` writes its shims to
+`/usr/bin`, which is read-only in Render's build image, and the build dies in ~8s with
+`EROFS: read-only file system, unlink '/usr/bin/pnpm'`.
+
+There is no explicit `prisma generate` — `apps/api`'s `postinstall` already runs it.
 
 **Start Command**
 
 ```
-pnpm --filter ./apps/api start
+node apps/api/dist/index.cjs
 ```
+
+Running the built bundle directly means the *runtime* needs no pnpm on `PATH`, so the
+corepack shim above matters only during the build.
 
 Seeding runs inside the build, so **no shell access is required**. The seed is idempotent
 (it deletes its own datasets by name first), so redeploys refresh the demo without
 duplicating rows.
+
+**Node version** comes from `.node-version` (`22`). Without it Render reads `engines.node`
+and will happily install the newest major — it picked 26.5.0, which neither Prisma 5 nor
+tsup are tested against.
 
 **Environment variables**
 
@@ -135,6 +148,9 @@ requires the hosted link in the README.
 
 | Symptom | Cause / fix |
 |---|---|
+| Build fails in ~8s, `EROFS ... unlink '/usr/bin/pnpm'` | Bare `corepack enable`. Use the `--install-directory` form in step 2. |
+| Render installs Node 26.x | `.node-version` missing at the repo root. |
+| Pushing to `main` doesn't redeploy | Render cloned the repo anonymously ("we don't have access to your repo"), so no webhook exists. Connect the GitHub app under **Settings → Build & Deploy**, or use **Manual Deploy**. |
 | Dashboard empty, CORS errors in console | `CORS_ORIGIN` missing or mismatched — step 4 |
 | Build fails at `prisma migrate deploy` | Used the direct Neon string, not pooled; or drop `&channel_binding=require` |
 | API 502 / OOM on upload | `MAX_UPLOAD_MB` not set to `25` |
