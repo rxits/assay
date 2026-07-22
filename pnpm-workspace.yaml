@@ -1,6 +1,10 @@
 packages:
   - "apps/*"
   - "packages/*"
+# tsup 8.5 pins esbuild to ^0.27, which is short of the 0.28.1 that patches
+# GHSA-g7r4-m6w7-qqqr. Force the patched line; the esbuild build API is unchanged.
+overrides:
+  esbuild@>=0.27.3 <0.28.1: "^0.28.1"
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
