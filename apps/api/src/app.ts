@@ -9,7 +9,7 @@ import { healthRouter } from "./routes/health";
 import { datasetsRouter } from "./routes/datasets";
 import { settingsRouter } from "./routes/settings";
 import { ApiHttpError } from "./lib/errors";
-import { globalLimiter, mutationLimiter, requireAdmin } from "./lib/security";
+import { corsOrigins, globalLimiter, mutationLimiter, requireAdmin } from "./lib/security";
 
 export function createApp(): Express {
   const app = express();
@@ -21,7 +21,7 @@ export function createApp(): Express {
   app.disable("x-powered-by");
 
   app.use(helmet());
-  app.use(cors({ origin: process.env.CORS_ORIGIN, methods: ["GET", "POST", "PATCH", "DELETE"] }));
+  app.use(cors({ origin: corsOrigins(), methods: ["GET", "POST", "PATCH", "DELETE"] }));
   // Bodies here are settings patches and classification overrides — a few hundred bytes.
   // 1mb is generous headroom; file uploads take the multipart path and multer's own cap.
   app.use(express.json({ limit: "1mb" }));

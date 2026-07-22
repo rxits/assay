@@ -22,6 +22,25 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 /** Vitest sets NODE_ENV=test; a suite fires hundreds of requests from one IP by design. */
 const isTest = process.env.NODE_ENV === "test";
 
+/**
+ * The CORS allowlist, read from a comma-separated `CORS_ORIGIN` (one entry is the norm).
+ *
+ * The subtlety worth naming: `cors({ origin: undefined })` does not mean "no origins", it
+ * means `*`. A production deploy that simply forgot the variable would therefore publish
+ * the API to every site on the internet — silently, because nothing in the app misbehaves.
+ * Returning `false` instead keeps the failure mode identical to `requireAdmin`: when the
+ * operator has said nothing, the answer is no. Development falls back to the Vite dev
+ * server so a fresh clone with no .env still runs.
+ */
+export function corsOrigins(): string[] | false {
+  const configured = (process.env.CORS_ORIGIN ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (configured.length > 0) return configured;
+  return process.env.NODE_ENV === "production" ? false : ["http://localhost:5173"];
+}
+
 function deny(res: Response, status: number, code: ApiErrorCode, message: string): void {
   const body: ApiError = { error: { code, message } };
   res.status(status).json(body);
