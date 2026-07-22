@@ -213,8 +213,21 @@ export function computeValue(events: AccessEvent[], now: Date, cfg: ScoringConfi
   const daysSinceLastAccess = events.length === 0 ? null : Math.max(0, (nowMs - maxOccurred) / DAY_MS);
 
   const frequency = unit(Math.log1p(accesses90d) / Math.log1p(cfg.freqCap));
-  const recency = unit(daysSinceLastAccess === null ? 0 : Math.exp(-daysSinceLastAccess / cfg.halfLifeDays));
-  const trend = unit(0.5 + (accessesLast30 - accessesPrev30) / (2 * Math.max(1, accessesPrev30)));
+
+  // Recency answers "was this used lately", but a single hit is not evidence of use — and at
+  // 0.35 weight, letting it score 1.0 meant one click could carry a dead dataset. Scale it by
+  // how much corroboration there is, so recency counts fully only once usage is real.
+  const confidence = unit(accesses90d / cfg.recencyMinAccesses);
+  const recency = unit(
+    (daysSinceLastAccess === null ? 0 : Math.exp(-daysSinceLastAccess / cfg.halfLifeDays)) * confidence,
+  );
+
+  // A ratio against an empty prior period is not "infinite growth", it is an undefined trend.
+  // Flooring the denominator makes the first few accesses read as barely-above-neutral and
+  // requires sustained volume to earn a strong signal.
+  const trend = unit(
+    0.5 + (accessesLast30 - accessesPrev30) / (2 * Math.max(cfg.trendBaselineMin, accessesPrev30)),
+  );
 
   const components = {
     frequency: component(frequency, w.frequency),

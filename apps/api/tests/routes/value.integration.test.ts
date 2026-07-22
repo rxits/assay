@@ -36,12 +36,15 @@ describe("GET /api/datasets/:id — value-on-read (04 §2.4)", () => {
     expect(before.valueRecommendation).toBe("RETIRE");
     expect(await prisma.accessEvent.count({ where: { datasetId: id } })).toBe(0);
 
-    // Tracked view (default): records one event and recomputes Value → opened-once-today ≈ 62.93 KEEP.
+    // Tracked view (default): records one event and recomputes Value. One view lifts the
+    // score off the floor but must NOT clear it to KEEP — it used to reach 62.93 because
+    // Recency and Trend both saturated on the first access, which is 55% of the weight. A
+    // dataset opened once is exactly what "low activity" means, so it lands mid-band.
     const after = (await request(app).get(`/api/datasets/${id}`).expect(200)).body.data;
     expect(await prisma.accessEvent.count({ where: { datasetId: id, type: "DETAIL_VIEW", source: "LIVE" } })).toBe(1);
     expect(after.valueScore).toBeGreaterThan(before.valueScore);
-    expect(after.valueScore).toBeCloseTo(62.93, 1);
-    expect(after.valueRecommendation).toBe("KEEP");
+    expect(after.valueScore).toBeCloseTo(31.6, 1);
+    expect(after.valueRecommendation).not.toBe("KEEP");
     expect(after.usage.summary.accesses90d).toBe(1);
     expect(after.usage.summary.lastAccessedAt).not.toBeNull();
     // A snapshot was appended for the trend sparkline.

@@ -165,6 +165,8 @@ export function toScoringConfig(s: AppSettings): ScoringConfig {
     classifyThreshold: s.classifyThreshold,
     freqCap: s.freqCap,
     halfLifeDays: s.halfLifeDays,
+    trendBaselineMin: config.trendBaselineMin,
+    recencyMinAccesses: config.recencyMinAccesses,
     structuralPenaltyPerIssue: config.structuralPenaltyPerIssue,
     structuralPenaltyCap: config.structuralPenaltyCap,
     recommend: s.recommend,

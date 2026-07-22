@@ -14,6 +14,8 @@ export interface ScoringConfig {
   readonly classifyThreshold: number;
   readonly freqCap: number;
   readonly halfLifeDays: number;
+  readonly trendBaselineMin: number;
+  readonly recencyMinAccesses: number;
   readonly structuralPenaltyPerIssue: number;
   readonly structuralPenaltyCap: number;
   readonly recommend: { readonly retireBelow: number; readonly archiveBelow: number; readonly optimizeBelow: number };
@@ -29,6 +31,14 @@ export const config = {
   classifyThreshold: 0.70, // CLASSIFY_THRESHOLD — value-pattern match share to auto-classify
   freqCap: 50, // FREQ_CAP — accesses at which Frequency saturates to 1
   halfLifeDays: 30, // HALFLIFE — Recency decay half-life (days)
+
+  // Two guards that stop a SINGLE access from reading as a thriving dataset. Without them
+  // Recency and Trend both saturate to 1.0 on the first view, which is 55% of the Value
+  // weight — so one click moved a dataset from RETIRE straight to KEEP and the ARCHIVE /
+  // OPTIMIZE bands were unreachable for anything a reviewer actually opened. That defeats
+  // the brief's "identify datasets with low or no activity".
+  trendBaselineMin: 5, // a growth ratio needs a real prior period, not a denominator of 1
+  recencyMinAccesses: 3, // "used recently" needs more evidence than one hit to count fully
 
   // --- structural penalty: pins §9's "penalized by structural issues" (06 §5) ---
   structuralPenaltyPerIssue: 0.05, // per distinct defect type
