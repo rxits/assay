@@ -23,6 +23,7 @@ import {
   Download,
   ExternalLink,
   FileUp,
+  KeyRound,
   Loader2,
   Palette,
   RefreshCw,
@@ -45,7 +46,10 @@ import type {
 } from "@assay/shared";
 import { StatusPill } from "@/components/dataset/SensitivityBadge";
 import {
+  ApiClientError,
   listDatasets,
+  setAdminToken,
+  useAdminToken,
   useDeleteAllDatasets,
   usePatchSettings,
   useRecomputeScores,
@@ -306,6 +310,7 @@ export function SettingsPage() {
                 update={update}
                 onReset={resetToDefaults}
                 resetting={resetM.isPending}
+                resetError={resetM.error}
               />
               <ClassificationSection
                 draft={draft}
@@ -324,7 +329,7 @@ export function SettingsPage() {
             dirty={dirty}
             blocked={!!validation && Object.keys(validation.errors).length > 0}
             saving={patchM.isPending}
-            error={patchM.isError ? errorText(patchM.error) : null}
+            error={patchM.isError ? actionErrorText(patchM.error) : null}
             onSave={save}
             onDiscard={() => server && adopt(server.settings)}
           />
@@ -335,6 +340,30 @@ export function SettingsPage() {
 }
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : "Something went wrong.");
+
+/**
+ * The admin gate's 401 is the one failure on this page the reader can actually fix, so it gets
+ * a pointer to the field instead of a bare refusal. Its 403 (no ADMIN_TOKEN on the API at all)
+ * already explains itself and has no client-side fix, so it passes through untouched.
+ */
+const actionErrorText = (e: unknown): string =>
+  e instanceof ApiClientError && e.code === "admin_token_required"
+    ? `${e.message} Enter it under Data → Admin token.`
+    : errorText(e);
+
+/** A refused action says so where its button is: a toast can be missed or land off-screen. */
+function ActionError({ error }: { error: unknown }) {
+  if (!error) return null;
+  return (
+    <p
+      role="alert"
+      className="mt-2 flex w-full items-start gap-1.5 text-pretty text-[12px] leading-relaxed text-[color:var(--status-critical)]"
+    >
+      <TriangleAlert aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
+      {actionErrorText(error)}
+    </p>
+  );
+}
 
 /** Highlights the section the reader is actually looking at. No-ops where IO is unavailable. */
 function useActiveSection(): string {
@@ -853,6 +882,7 @@ function ScoringSection({
   update,
   onReset,
   resetting,
+  resetError,
 }: {
   draft: Draft;
   validation: Validation;
@@ -861,6 +891,7 @@ function ScoringSection({
   update: (fn: (d: Draft) => Draft) => void;
   onReset: () => void;
   resetting: boolean;
+  resetError: unknown;
 }) {
   const recomputeM = useRecomputeScores();
   const freqId = useId();
@@ -951,7 +982,7 @@ function ScoringSection({
                       (r.tagsUpdated ? ` · ${formatCount(r.tagsUpdated)} tags remapped` : "") +
                       (r.skipped ? ` · ${formatCount(r.skipped)} skipped` : ""),
                   ),
-                onError: (e) => toast(errorText(e), "error"),
+                // Failures are reported inline below, not as a toast — see <ActionError>.
               })
             }
             className={BTN_PRIMARY}
@@ -974,6 +1005,9 @@ function ScoringSection({
             access events. Datasets that never produced scores (failed or still processing) are
             skipped rather than invented.
           </p>
+
+          <ActionError error={recomputeM.error} />
+          <ActionError error={resetError} />
         </div>
       </div>
     </Section>
@@ -1304,6 +1338,49 @@ function IngestionSection() {
 
 const DELETE_PHRASE = "DELETE";
 
+/**
+ * The API refuses catalog-wide changes without an `x-admin-token` header, so this is where a
+ * deployment's operator supplies it. It is kept in sessionStorage only (see lib/api.ts) — a
+ * shared secret has no business outliving the tab it was typed into.
+ */
+function AdminTokenRow() {
+  const token = useAdminToken();
+  const id = useId();
+  return (
+    <Row
+      label={
+        <span className="inline-flex items-center gap-1.5">
+          <KeyRound aria-hidden="true" className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.1} />
+          Admin token
+        </span>
+      }
+      hint="Required by deployed instances for every action on this page that changes the catalog — saving settings, recomputing, re-seeding and deleting. Kept in this browser tab only: never saved to disk, and gone when the tab closes."
+      htmlFor={id}
+    >
+      <div className="flex items-center gap-2">
+        <input
+          id={id}
+          type="password"
+          value={token}
+          placeholder="Paste to enable"
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(e) => setAdminToken(e.target.value)}
+          className={cn(FIELD, "w-48 font-mono")}
+        />
+        <button
+          type="button"
+          disabled={!token}
+          onClick={() => setAdminToken("")}
+          className="rounded-md px-1.5 py-1 text-[12px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
+        >
+          Clear
+        </button>
+      </div>
+    </Row>
+  );
+}
+
 function DataSection() {
   const reseedM = useReseedDemoData();
   const deleteM = useDeleteAllDatasets();
@@ -1348,6 +1425,7 @@ function DataSection() {
       description="The catalog's contents. Everything here acts on the shared database, not on this device."
     >
       <div className={cn(GLASS_CARD, "mb-3")}>
+        <AdminTokenRow />
         <Row
           label="Demo catalog"
           hint="Re-runs the five committed sample files through the real ingestion pipeline. Replaces those five by name; anything you uploaded is left alone."
@@ -1358,7 +1436,6 @@ function DataSection() {
             onClick={() =>
               reseedM.mutate(undefined, {
                 onSuccess: (r) => toast(`Re-seeded ${formatCount(r.datasets)} demo datasets.`),
-                onError: (e) => toast(errorText(e), "error"),
               })
             }
             className={BTN}
@@ -1376,6 +1453,11 @@ function DataSection() {
             {exporting ? "Exporting…" : "Export JSON"}
           </button>
         </Row>
+        {reseedM.isError && (
+          <div className="px-4 pb-3.5">
+            <ActionError error={reseedM.error} />
+          </div>
+        )}
       </div>
 
       <div
@@ -1414,7 +1496,6 @@ function DataSection() {
                   setPhrase("");
                   toast(`Deleted ${formatCount(r.datasets)} dataset${r.datasets === 1 ? "" : "s"}.`);
                 },
-                onError: (e) => toast(errorText(e), "error"),
               })
             }
             className={cn(
@@ -1426,6 +1507,7 @@ function DataSection() {
             {deleteM.isPending ? "Deleting…" : "Delete all datasets"}
           </button>
         </div>
+        <ActionError error={deleteM.error} />
       </div>
     </Section>
   );

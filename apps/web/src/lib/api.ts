@@ -4,6 +4,7 @@
 // (09 §4); we compose /api/... paths from it. Every success body is unwrapped
 // from its { data } / { data, meta } envelope (04 §1.2); every 4xx/5xx is thrown
 // as a typed ApiClientError carrying the { error } contract (04 §1.3).
+import { useSyncExternalStore } from "react";
 import {
   keepPreviousData,
   useMutation,
@@ -45,6 +46,55 @@ export class ApiClientError extends Error {
     super(message);
     this.name = "ApiClientError";
   }
+}
+
+// ---- Admin token --------------------------------------------------------
+//
+// Destructive calls carry an `x-admin-token` header. It is an operator secret, so it is held
+// in sessionStorage and nowhere else: never localStorage (which survives on disk, indefinitely,
+// on a shared machine), never a cookie (sent automatically, everywhere), never a query string
+// (logged by every proxy in between). Closing the tab is the logout.
+//
+// Same store shape as lib/preferences.ts — a module value read through useSyncExternalStore,
+// so the non-React `http` path and the React input see one source of truth.
+const ADMIN_TOKEN_KEY = "assay-admin-token";
+const adminListeners = new Set<() => void>();
+
+function readAdminToken(): string {
+  try {
+    return sessionStorage.getItem(ADMIN_TOKEN_KEY) ?? "";
+  } catch {
+    return ""; // private mode / storage disabled — the field still works for this page load
+  }
+}
+
+let adminToken = readAdminToken();
+
+export const getAdminToken = (): string => adminToken;
+
+export function setAdminToken(value: string): void {
+  // Trimmed on the way in: a pasted secret drags whitespace far more often than a token contains it.
+  const next = value.trim();
+  if (next === adminToken) return;
+  adminToken = next;
+  try {
+    if (next) sessionStorage.setItem(ADMIN_TOKEN_KEY, next);
+    else sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+  } catch {
+    /* best effort — the in-memory value still authorises this tab */
+  }
+  for (const l of adminListeners) l();
+}
+
+function subscribeAdminToken(cb: () => void): () => void {
+  adminListeners.add(cb);
+  return () => {
+    adminListeners.delete(cb);
+  };
+}
+
+export function useAdminToken(): string {
+  return useSyncExternalStore(subscribeAdminToken, getAdminToken, getAdminToken);
 }
 
 function toClientError(status: number, body: unknown): ApiClientError {
@@ -149,9 +199,15 @@ export function uploadDataset(vars: UploadVars): Promise<DatasetSummary> {
 
 // ---- Settings + system (R3) ---------------------------------------------
 
+// Every call built through this helper is one the API's admin gate covers, so the token rides
+// along here rather than at each call site — a new gated endpoint gets it for free.
 const json = (method: string, body?: unknown): RequestInit => ({
   method,
-  ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  headers: {
+    ...(adminToken ? { "x-admin-token": adminToken } : {}),
+    ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+  },
+  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
 });
 
 export async function getSettings(): Promise<AppSettingsResponse> {
