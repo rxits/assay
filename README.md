@@ -177,8 +177,9 @@ deliberate, not accidental:
   `INTEGER` `/^-?\d+$/`; `FLOAT` finite `Number()`; `BOOLEAN` ∈
   {true,false,0,1,yes,no}; `DATE`/`DATETIME` a parseable date; `STRING`/`UNKNOWN`
   always valid. `Validity` is the share of a column's values that pass.
-- **10 MiB upload cap.** Enforced at the multipart boundary; a larger file is
-  rejected with `413 file_too_large` before any parsing.
+- **Upload cap of `MAX_UPLOAD_MB` (default 100).** Enforced at the multipart
+  boundary; a larger file is rejected with `413 file_too_large` before any
+  parsing. See [Security](#security) for the recommended free-tier value.
 - **Brand-new datasets read `RETIRE` until first viewed — by design.** Value is
   driven purely by access events; a just-uploaded dataset has none, so it scores
   low and reads `RETIRE` until it's opened (which records its first view). Seeds
@@ -223,6 +224,124 @@ lives in [`docs/00`–`docs/10`](./docs).
 
 ---
 
+## Security
+
+This is a public, deliberately **unauthenticated** demo. That is a scoping
+decision, not an omission — so here is exactly what is and isn't protected.
+
+### No auth, by design
+
+The brief scopes user accounts out, and a reviewer must be able to open the
+deployed URL and *use* it. So **reads and uploads are intentionally open**:
+anyone with the link can browse the catalog, upload a file, and override a
+classification. What is *not* open is the ability to wipe or re-tune the shared
+catalog from a URL bar.
+
+### `ADMIN_TOKEN` — the gate on destructive routes
+
+Mutating requests under `/api/settings` (scoring-weight changes, rescore) and
+`/api/data` (reset/wipe) go through an admin gate. Safe methods
+(`GET`/`HEAD`/`OPTIONS`) are never gated. Three behaviours:
+
+| `ADMIN_TOKEN` | Behaviour |
+|---|---|
+| **Set** | An `x-admin-token` header must match, compared in constant time (both sides SHA-256'd first, so a length mismatch can't leak the token's length). Missing/wrong ⇒ `401 admin_token_required`. |
+| **Unset, `NODE_ENV=production`** | **Fails closed** — `403 admin_disabled`. An unset secret in production is far likelier to be an oversight than a decision, and a public demo anyone can empty with one `curl -X DELETE` is worse than one with a disabled danger zone. |
+| **Unset, dev/test** | Allowed, with a one-line warning at boot (`apps/api/src/index.ts`), so local work and the test suite need no ceremony. |
+
+Generate one with `openssl rand -hex 32` and set it **on the API host only** —
+it is a server-side secret and is never bundled into the web app. The Settings
+page prompts for it and sends it per-request.
+
+Both gates are mounted **by path prefix** in `createApp()`, not decorated per
+route, so a route added under those prefixes later is protected by default.
+
+### Transport & request hardening
+
+- **`helmet()`** default security headers; `x-powered-by` disabled.
+- **CORS pinned to `CORS_ORIGIN`** (single origin), methods limited to
+  `GET/POST/PATCH/DELETE`.
+- **1 MB JSON body cap** — JSON bodies here are settings patches and
+  classification overrides, a few hundred bytes; uploads take the multipart
+  path and multer's own cap.
+- **`trust proxy: 1`** — exactly the one TLS-terminating hop in front of the
+  API, so the rate limiters bucket real client IPs instead of lumping the
+  world into the proxy.
+
+### Rate limiting
+
+Two `express-rate-limit` layers, both `429 rate_limited`:
+
+| Limiter | Budget | Scope |
+|---|---|---|
+| Global | 600 / 15 min / IP | Every request. Sized for a human with the dashboard open (the Settings page polls `/api/system`), not a scraper. |
+| Mutation | **30 / 15 min / IP** | Non-safe methods only. Every mutation either burns CPU (a large parse, a full-catalog rescore) or changes shared state. |
+
+Uploads and classification overrides stay open, but they sit behind the
+mutation limiter. Both limiters are skipped when `NODE_ENV=test` (a suite fires
+hundreds of requests from one IP by design).
+
+### PII posture — read this before uploading anything
+
+**Do not upload real personal data to a public deployment.** The demo is
+unauthenticated, so anything persisted is world-readable to anyone with the
+link. Concretely, ingestion keeps:
+
+- **≤ 50 sample rows per dataset** (the detail-page preview), and
+- **≤ 10 distinct sample values per column** (shown in the column profile).
+
+Those caps are structural (`INGEST` in `apps/api/src/lib/config.ts`) — reported
+read-only by `GET /api/system`, deliberately *not* runtime-tunable. Everything
+else is aggregate: the raw table is profiled and discarded, never stored.
+
+**What leaves the server:** nothing, unless `GROQ_API_KEY` is set. With no key,
+classification is pure regex/heuristics and the API makes no outbound calls at
+all. With a key set, **≤ 10 sampled values from *ambiguous columns only*** are
+sent to Groq for tag refinement — a column the regex classifier already
+resolved is never sent. The health narrative sends an aggregate summary (row
+and column counts, scores, duplicate count, sensitive-category names) and no
+cell values. No sampled value is ever logged, on success or failure.
+
+### Upload limits
+
+`MAX_UPLOAD_MB` (default **100**) caps the multipart boundary; oversize files
+are rejected `413 file_too_large` before any parsing. On a **512 MB free-tier
+host, lower it to ~25** — parsing is in-memory, and a 100 MB workbook will
+outgrow the dyno before the cap ever fires.
+
+### Known advisories (`pnpm audit`)
+
+The two SheetJS advisories on the production path — prototype pollution
+([GHSA-4r6h-8v6p-xvw6](https://github.com/advisories/GHSA-4r6h-8v6p-xvw6),
+`<0.19.3`) and ReDoS
+([GHSA-5pgg-2g8v-p4x9](https://github.com/advisories/GHSA-5pgg-2g8v-p4x9),
+`<0.20.2`) — **are patched**. SheetJS pulled all releases `>=0.19` from npm, so
+`xlsx` is pinned to the vendor CDN tarball (`xlsx-0.20.3.tgz`) — the only place
+the fixed build exists.
+
+Five findings remain, **all `devDependencies`, none reachable in production**
+(the deployed API is a single `tsup`-bundled `dist/index.cjs`; none of these
+packages ship in it):
+
+| Severity | Package | Advisory | Path |
+|---|---|---|---|
+| critical | `vitest` `<3.2.6` | [GHSA-5xrq-8626-4rwp](https://github.com/advisories/GHSA-5xrq-8626-4rwp) — arbitrary file read/execute **when the Vitest UI server is listening** | `vitest` |
+| high | `vite` `<=6.4.2` | [GHSA-fx2h-pf6j-xcff](https://github.com/advisories/GHSA-fx2h-pf6j-xcff) — `server.fs.deny` bypass on Windows | `vitest > vite` |
+| moderate | `vite` `<=6.4.2` | [GHSA-v6wh-96g9-6wx3](https://github.com/advisories/GHSA-v6wh-96g9-6wx3) — `launch-editor` NTLMv2 disclosure on Windows | `vitest > vite` |
+| moderate | `vite` `<=6.4.1` | [GHSA-4w7w-66w2-5vf9](https://github.com/advisories/GHSA-4w7w-66w2-5vf9) — path traversal in optimized-deps `.map` handling | `vitest > vite` |
+| moderate | `esbuild` `<=0.24.2` | [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) — dev server accepts cross-origin requests | `vitest > vite > esbuild` |
+
+All five resolve to one root: **`vitest` 2.x**. The fix is a major bump to
+`vitest` 3, which is a real regression risk across 112 tests to close advisories
+that require running the Vitest UI or a Vite dev server — neither of which we
+run, in CI or anywhere else. Deliberately deferred, not missed. The `esbuild`
+advisory that *did* reach the API's build chain (`tsup > esbuild`,
+[GHSA-g7r4-m6w7-qqqr](https://github.com/advisories/GHSA-g7r4-m6w7-qqqr)) is
+patched via a workspace `overrides` pin to `0.28.1`, since `tsup` 8.5 still
+caps at `^0.27`.
+
+---
+
 ## Testing
 
 ```bash
@@ -262,17 +381,21 @@ Three managed free-tier services, one responsibility each — see
    React + Vite CDN           GET/POST /api/*                    serverless, scale-to-zero
 ```
 
-**Environment variables** (six total; secrets live only in host dashboards,
-never in the repo):
+**Environment variables** (four required, six optional; secrets live only in
+host dashboards, never in the repo — see [Security](#security)):
 
-| Variable | Service | Notes |
-|---|---|---|
-| `DATABASE_URL` | Render | Neon **pooled** connection string. |
-| `GROQ_API_KEY` | Render | **Optional**, server-side only — enables AI enrichment. |
-| `VITE_API_URL` | Vercel | Public base URL of the API (build-time; inlined). |
-| `CORS_ORIGIN` | Render | The Vercel web origin, for the CORS allowlist. |
-| `PORT` | Render | Injected by the platform. |
-| `NODE_ENV` | both | `production` in deploys. |
+| Variable | Service | Required | Notes |
+|---|---|---|---|
+| `DATABASE_URL` | Render | ✅ | Neon **pooled** connection string. |
+| `VITE_API_URL` | Vercel | ✅ | Public base URL of the API (build-time; inlined). |
+| `CORS_ORIGIN` | Render | ✅ | The Vercel web origin, for the CORS allowlist. |
+| `NODE_ENV` | both | ✅ | `production` in deploys. Also flips the admin gate to fail-closed. |
+| `PORT` | Render | — | Injected by the platform; falls back to `4000`. |
+| `ADMIN_TOKEN` | Render | ⚠️ | Shared secret for mutations under `/api/settings` and `/api/data`. `openssl rand -hex 32`. **Unset in production ⇒ those routes return `403`.** API host only. |
+| `GROQ_API_KEY` | Render | — | **Optional**, server-side only — enables LLM tag refinement on ambiguous columns and the health narrative. Unset ⇒ regex-only, zero outbound calls. |
+| `LLM_BASE_URL` | Render | — | OpenAI-compatible endpoint. Default `https://api.groq.com/openai/v1`; set it to point at any other compatible host. |
+| `LLM_MODEL` | Render | — | Default `llama-3.3-70b-versatile`. |
+| `MAX_UPLOAD_MB` | Render | — | Multipart upload cap, default `100`. **Set ~`25` on a 512 MB free-tier host** — parsing is in-memory. |
 
 **Build note — omit the shared build step.** `docs/09` sketches a
 `pnpm --filter ./packages/shared build` step; the implementation makes it
