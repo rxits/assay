@@ -89,25 +89,31 @@ Verify: `https://<service>.onrender.com/api/health` → `{"status":"ok",...}`
 
 ## 3. Vercel (web)
 
-<https://vercel.com> → **Add New → Project** → import `rxits/assay`
+Every build setting lives in `vercel.json` at the **repo root**, so there is nothing to
+configure in the dashboard and the config is reviewable in git:
 
-| Setting | Value |
-|---|---|
-| Framework Preset | **Vite** |
-| **Root Directory** | `apps/web` — tick **"Include source files outside of the Root Directory"** |
-| Install Command | `pnpm install --frozen-lockfile` |
-| **Build Command** | `pnpm build` |
-| Output Directory | `dist` |
-| Node Version | 22.x |
+```jsonc
+{
+  "framework": "vite",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter ./apps/web build",
+  "outputDirectory": "apps/web/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
+```
 
-**Environment variable**
+The deploy root is the **workspace root**, not `apps/web`. `@assay/web` depends on the
+source-only `@assay/shared` package, so a build scoped to `apps/web` cannot resolve it.
+The `rewrites` rule is what keeps deep links like `/datasets/<id>` from 404ing on reload.
 
-| Key | Value |
-|---|---|
-| `VITE_API_URL` | `https://<service>.onrender.com` — no trailing slash, no `/api` |
+```bash
+vercel link --yes                                          # creates the project
+printf 'https://<service>.onrender.com' | vercel env add VITE_API_URL production
+vercel deploy --prod --yes
+```
 
-*Fallback if the build fails:* set Root Directory blank, Build Command
-`pnpm --filter ./apps/web build`, Output Directory `apps/web/dist`.
+`VITE_API_URL` takes no trailing slash and no `/api`. Vite inlines it at **build** time,
+so changing it later requires a redeploy, not just a restart.
 
 ---
 
