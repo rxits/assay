@@ -39,10 +39,15 @@ describe("detectQualityChecks — 08 §3.4", () => {
     expect(inv?.affectedCount).toBe(1); // 9 ints match, "x" does not
   });
 
-  it("flags TYPE_MISMATCH for a mixed column, without INVALID_VALUES (STRING is always valid)", () => {
+  // A mixed column raises both: TYPE_MISMATCH says the column has no single type, and
+  // INVALID_VALUES counts the values that disagree with the dominant one. INVALID_VALUES used
+  // to be suppressed here — the STRING fallback reported validity 1.0, so the check that is
+  // gated on validity < 1 could never fire, and the brief's "obviously invalid values" went
+  // unreported on exactly the messy columns it exists for.
+  it("flags both TYPE_MISMATCH and INVALID_VALUES for a mixed column", () => {
     const checks = detectQualityChecks(profileDataset(["m"], [["1"], ["x"], ["2"]]));
     expect(find(checks, "TYPE_MISMATCH")?.columnName).toBe("m");
-    expect(find(checks, "INVALID_VALUES")).toBeUndefined();
+    expect(find(checks, "INVALID_VALUES")?.affectedCount).toBe(1); // the stray "x"
   });
 
   it("flags DUPLICATE_ROWS (dataset-level, WARNING) and DUPLICATE_HEADER (ERROR)", () => {

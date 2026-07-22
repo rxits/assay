@@ -24,7 +24,39 @@ describe("profileColumn", () => {
     const p = profileColumn(["1", "x", "2"], 3);
     expect(p.dataType).toBe("STRING");
     expect(p.dominantTypeShare).toBeCloseTo(0.667, 2);
-    expect(p.validity).toBe(1); // STRING is always valid (R9)
+    // Falling back to STRING means "no type won", not "everything is fine": the column is
+    // 2/3 numbers with a stray value in it, and validity has to say so.
+    expect(p.validity).toBeCloseTo(0.667, 2);
+  });
+
+  // Regression: validity must never reward a dirtier column. Below the 0.8 commit threshold
+  // the type falls back to STRING, and treating STRING as vacuously all-valid scored this
+  // column 1.00 — strictly better than the cleaner 90%-integer column beneath it.
+  it("scores a messier column no higher than a cleaner one", () => {
+    const messy = profileColumn(["1", "2", "3", "x", "y"], 5); // 60% numeric → STRING fallback
+    const cleaner = profileColumn(["1", "2", "3", "4", "x"], 5); // 80% numeric → commits to INTEGER
+
+    expect(messy.dataType).toBe("STRING");
+    expect(cleaner.dataType).toBe("INTEGER");
+    expect(messy.validity).toBeLessThan(cleaner.validity);
+  });
+
+  it("still treats a genuinely textual column as fully valid", () => {
+    const p = profileColumn(["alice", "bob", "carol"], 3);
+    expect(p.dataType).toBe("STRING");
+    expect(p.validity).toBe(1); // nothing disagrees — there is no stray type here
+  });
+
+  // Number() parses 0x/0o/0b literals, so a hex ID column typed as FLOAT and scored perfect.
+  it("does not read hex literals as numbers", () => {
+    const p = profileColumn(["0x10", "0xFF", "0x20"], 3);
+    expect(p.dataType).toBe("STRING");
+  });
+
+  it("truncates an oversized sample value rather than persisting it whole", () => {
+    const p = profileColumn(["z".repeat(5000)], 1);
+    expect(p.sampleValues[0]!.length).toBe(256);
+    expect(p.sampleValues[0]!.endsWith("…")).toBe(true);
   });
 
   it("computes completeness, missing, distinct, and samples", () => {
