@@ -4,7 +4,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import multer, { MulterError } from "multer";
 import { z } from "zod";
 import type { FileType } from "@assay/shared";
-import { MAX_UPLOAD_BYTES } from "../lib/config";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "../lib/config";
 import { ApiHttpError, fromZod } from "../lib/errors";
 import { ingestDataset } from "../services/ingest";
 import {
@@ -154,8 +154,14 @@ function translateUploadError(err: unknown): unknown {
   if (err instanceof ApiHttpError) return err; // e.g. fileFilter's 415
   if (err instanceof MulterError) {
     if (err.code === "LIMIT_FILE_SIZE") {
-      return new ApiHttpError(413, "file_too_large", "File exceeds the 10 MiB upload limit.");
+      return new ApiHttpError(
+        413,
+        "file_too_large",
+        `File exceeds the ${MAX_UPLOAD_MB} MB upload limit.`
+      );
     }
+    // Not a JSON body — this is the multipart path — but `malformed_json` is the closest
+    // code the shared ApiErrorCode union carries for "the request body was unreadable".
     return new ApiHttpError(400, "malformed_json", "Malformed multipart upload.");
   }
   return err;

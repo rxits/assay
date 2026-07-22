@@ -29,7 +29,7 @@ seven required governance areas:
 
 | # | Area | What it does |
 |---|------|--------------|
-| 1 | **Ingestion** | Multipart upload (CSV/XLSX), captures filename, size, row/column counts; streams-parses and caps oversized files. |
+| 1 | **Ingestion** | Multipart upload (CSV/XLSX), captures filename, size, row/column counts; parses in memory behind a hard size cap. |
 | 2 | **Discovery** | Infers per-column data type and profiles completeness, distinct count, validity, and sample values. |
 | 3 | **Classification** | Auto-tags sensitive columns (email, phone, national ID, credit card, DOB, name, address…) by header + value-pattern signals, with a **manual override** on every column. |
 | 4 | **Quality** | Per-column missing/invalid values, dataset-level duplicate rows and structural defects → a **Quality Score**. |
@@ -143,9 +143,9 @@ docker run --name assay-pg \
   -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=assay \
   -p 5434:5432 -d postgres:16
 
-# 3. Configure the API. The example DATABASE_URL already points at the container above.
+# 3. Configure the API. The example DATABASE_URL already points at the container above,
+#    so this works as-is for local development.
 cp apps/api/.env.example apps/api/.env
-#   → set DATABASE_URL=postgresql://postgres:postgres@localhost:5434/assay
 
 # 4. Apply migrations and seed the sample datasets + backdated usage
 pnpm --filter @assay/api exec prisma migrate dev
@@ -336,7 +336,7 @@ packages ship in it):
 | moderate | `esbuild` `<=0.24.2` | [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) — dev server accepts cross-origin requests | `vitest > vite > esbuild` |
 
 All five resolve to one root: **`vitest` 2.x**. The fix is a major bump to
-`vitest` 3, which is a real regression risk across 112 tests to close advisories
+`vitest` 3, which is a real regression risk across 117 tests to close advisories
 that require running the Vitest UI or a Vite dev server — neither of which we
 run, in CI or anywhere else. Deliberately deferred, not missed. The `esbuild`
 advisory that *did* reach the API's build chain (`tsup > esbuild`,
