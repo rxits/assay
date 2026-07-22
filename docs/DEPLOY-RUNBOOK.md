@@ -28,7 +28,11 @@ on a free dyno.
 > error, delete just `&channel_binding=require` from the string (keep `?sslmode=require`)
 > and redeploy. That is the most common Neon + Prisma first-deploy hiccup.
 
-Note your Neon **region** — match it in step 2.
+Note your Neon **region** — match it in step 2, and treat that as a hard requirement
+rather than a preference. This deploy first ran with the API in Singapore and the database
+in `us-east-1`: every catalog request took **2.5–3.0s** warm, because a handful of
+sequential queries each pay a ~230ms round trip. Moving the database to the API's region
+took the same requests to **0.8–1.3s** with no code change.
 
 ---
 
