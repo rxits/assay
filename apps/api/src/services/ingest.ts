@@ -9,7 +9,7 @@ import type { Prisma } from "@prisma/client";
 import type { DatasetSummary, FileType, PiiCategory, Sensitivity, TagSource } from "@assay/shared";
 import { prisma } from "../lib/prisma";
 import { INGEST } from "../lib/config";
-import { parseFile, type ParsedFile } from "../lib/parsers";
+import { ParseError, parseFile, type ParsedFile } from "../lib/parsers";
 import { profileDataset, type ProfiledColumn } from "../domain/profile";
 import { classifyColumn, type ClassifyConfig } from "../domain/classification";
 import { detectQualityChecks } from "../domain/quality";
@@ -18,6 +18,17 @@ import { classifyColumnAI, generateHealthNarrative, llm } from "../lib/llm";
 import { ApiHttpError } from "../lib/errors";
 import { getEffectiveSettings, toClassifyConfig, toScoringConfig } from "./settings";
 import { toDatasetSummary } from "./serialize";
+
+/**
+ * A failure whose message we wrote ourselves, and may therefore show to the world.
+ *
+ * `Dataset.errorMessage` is rendered on the public catalog, so echoing `err.message` from an
+ * arbitrary throw published whatever the failing library said — a NUL byte in a cell surfaced
+ * a Prisma error complete with absolute repo paths and source lines.
+ */
+export class IngestFailure extends Error {
+  override readonly name = "IngestFailure";
+}
 
 export interface IngestInput {
   buffer: Buffer;
@@ -47,8 +58,14 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
   let parsed: ParsedFile;
   try {
     parsed = parseFile(buffer, fileType);
-  } catch {
-    throw new ApiHttpError(422, "invalid_file", "File could not be parsed as a tabular file.");
+  } catch (err) {
+    // A ParseError carries a reason the uploader can act on ("unterminated quote near line
+    // 5"); anything else is an internal fault whose message is not ours to publish.
+    throw new ApiHttpError(
+      422,
+      "invalid_file",
+      err instanceof ParseError ? err.message : "File could not be parsed as a tabular file."
+    );
   }
   if (parsed.headers.length === 0) {
     throw new ApiHttpError(422, "empty_file", "File has no columns.");
@@ -71,7 +88,7 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
 
   try {
     if (parsed.ragged) {
-      throw new Error(
+      throw new IngestFailure(
         `File is not rectangular: a data row's field count does not match the ${parsed.headers.length}-column header.`,
       );
     }
@@ -164,7 +181,10 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
       where: { id: dataset.id },
       data: {
         status: "FAILED",
-        errorMessage: err instanceof Error ? err.message : "Ingestion failed.",
+        // This string is rendered on a public dashboard. Only messages we authored are safe
+        // to show — a raw driver error carries absolute repo paths, source lines and SQL.
+        errorMessage:
+          err instanceof IngestFailure ? err.message : "Ingestion failed: the file could not be profiled.",
       },
     });
     return toDatasetSummary(failed);
@@ -211,20 +231,34 @@ function buildSampleRows(headers: string[], rows: (string | null)[][]): Record<s
   return rows.slice(0, INGEST.sampleRowsCap).map((row) => {
     const obj: Record<string, unknown> = {};
     keys.forEach((key, i) => {
-      obj[key] = row[i] ?? null;
+      const cell = row[i] ?? null;
+      obj[key] = cell === null ? null : truncate(cell);
     });
     return obj;
   });
 }
 
+// The INGEST caps bound how MANY samples are kept, never how LONG each one is — so a single
+// 2 MB cell was persisted twice and turned a two-row dataset into a 4 MB detail response.
+// Samples exist to show a human what the data looks like; 256 characters does that.
+const MAX_SAMPLE_CHARS = 256;
+export const truncate = (s: string): string =>
+  s.length <= MAX_SAMPLE_CHARS ? s : `${s.slice(0, MAX_SAMPLE_CHARS - 1)}…`;
+
 // Object keys must be unique; duplicate/blank headers get positional suffixes so
 // the preview keeps every column (the raw duplicate names live on Column.name).
 function disambiguate(headers: string[]): string[] {
-  const counts = new Map<string, number>();
+  // Counting occurrences per base name is not enough: headers `a, a_2, a` produced keys
+  // `a, a_2, a_2`, so the third column silently overwrote the second and the preview showed
+  // one column's values under another's name. Track the names actually taken and keep
+  // incrementing until the candidate is genuinely free.
+  const used = new Set<string>();
   return headers.map((h) => {
-    const base = h.trim() === "" ? "column" : h;
-    const n = (counts.get(base) ?? 0) + 1;
-    counts.set(base, n);
-    return n === 1 ? base : `${base}_${n}`;
+    const base = truncate(h.trim() === "" ? "column" : h);
+    let key = base;
+    let n = 1;
+    while (used.has(key)) key = `${base}_${++n}`;
+    used.add(key);
+    return key;
   });
 }

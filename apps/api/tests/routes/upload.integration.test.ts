@@ -35,6 +35,50 @@ beforeEach(async () => {
   );
 });
 
+describe("POST /api/datasets — hostile input never lies about the result", () => {
+  const post = (body: string | Buffer, filename: string) =>
+    request(app).post("/api/datasets").attach("file", Buffer.from(body), filename);
+
+  // A stray quote made PapaParse swallow the rest of the file into one cell, and the upload
+  // was catalogued READY with a perfect score over the handful of rows that survived.
+  it("rejects an unterminated quote instead of storing a truncated dataset", async () => {
+    const csv = ["a,b", '1,"oops', ...Array.from({ length: 200 }, (_, i) => `${i},${i}`)].join("\n");
+    const res = await post(csv, "broken-quote.csv").expect(422);
+
+    expect(res.body.error.code).toBe("invalid_file");
+    expect(res.body.error.message).toMatch(/unterminated quote/i);
+    expect(await prisma.dataset.count()).toBe(0); // rejected before anything was persisted
+  });
+
+  // Dataset.errorMessage is rendered on the public catalog. A NUL byte reached Postgres,
+  // and the driver's complaint — absolute repo paths, source lines, SQL — became the copy.
+  it("never persists an internal error message onto the catalog", async () => {
+    const res = await post("id,name\n1,a\u0000b\n2,c\u0000d", "nul.csv");
+
+    if (res.status === 201 && res.body.data.status === "FAILED") {
+      expect(res.body.data.errorMessage).not.toMatch(/prisma|invocation|\/home\/|node_modules|Error:/i);
+    } else {
+      // NULs are stripped at the parse boundary, so this should simply succeed and be clean.
+      expect(res.status).toBe(201);
+      expect(res.body.data.status).toBe("READY");
+      const col = await prisma.column.findFirstOrThrow({ where: { position: 1 } });
+      expect(col.sampleValues).toEqual(["ab", "cd"]);
+    }
+  });
+
+  // Headers `a, a_2, a` produced keys `a, a_2, a_2`: the third column overwrote the second,
+  // so the preview showed one column's values under another column's name.
+  it("keeps every column distinct in the preview when a suffix would collide", async () => {
+    const res = await post("a,a_2,a\n1,2,3\n4,5,6", "collide.csv").expect(201);
+    expect(res.body.data.columnCount).toBe(3);
+
+    const stored = await prisma.dataset.findUniqueOrThrow({ where: { id: res.body.data.id } });
+    const rows = stored.sampleRows as unknown as Record<string, string>[];
+    expect(Object.keys(rows[0]!)).toHaveLength(3);
+    expect(Object.values(rows[0]!)).toEqual(["1", "2", "3"]); // nothing lost, nothing shifted
+  });
+});
+
 describe("POST /api/datasets — ingestion + classification + scoring", () => {
   it("ingests a CSV: 201 READY with scores, PII tags, and quality checks", async () => {
     const res = await request(app)
