@@ -29,7 +29,7 @@ Three managed free-tier services, one responsibility each:
                                             │   scale-to-zero       │
                                             └──────────────────────┘
 
-   ANTHROPIC_API_KEY (optional) lives ONLY in Render's env ──► api ──► Claude Haiku
+   GROQ_API_KEY (optional) lives ONLY in Render's env ──► api ──► Groq (OpenAI-compatible)
    (absent ⇒ app runs fully on the regex/heuristic fallback — 00-SPEC §8)
 ```
 
@@ -50,7 +50,7 @@ Three managed free-tier services, one responsibility each:
 Provision in dependency order — each service needs the URL/secret of the one before it:
 
 1. **Neon** → create project, copy the pooled `DATABASE_URL`.
-2. **Render (api)** → set `DATABASE_URL` (+ optional `ANTHROPIC_API_KEY`), deploy, run first migration + seed, confirm `GET /api/health` = `200`. Note the public API URL.
+2. **Render (api)** → set `DATABASE_URL` (+ optional `GROQ_API_KEY`), deploy, run first migration + seed, confirm `GET /api/health` = `200`. Note the public API URL.
 3. **Vercel (web)** → set `VITE_API_URL` to the Render URL, deploy, note the `*.vercel.app` origin.
 4. **Back to Render** → set `CORS_ORIGIN` to the Vercel origin, redeploy the api.
 5. Smoke test: open the Vercel URL, confirm the catalog loads (seeded datasets) with no CORS errors in the console.
@@ -111,19 +111,21 @@ Notes:
 
 ## 4. Environment-variable matrix
 
-Exactly six variables. Names are synthetic config keys; **no real values appear in this doc or the repo.**
+Names, defaults and secrecy per variable. Names are synthetic config keys; **no real values appear in this doc or the repo.**
 
 | Variable | Service | Secret? | Where it's set | Notes |
 |---|---|---|---|---|
 | `DATABASE_URL` | api (Render) | **Yes** | Render dashboard → Environment | Neon **pooled** string, `?sslmode=require`. Also add as a GitHub Actions secret only if CI ever runs migrations (§6 — it doesn't by default). |
-| `ANTHROPIC_API_KEY` | api (Render) | **Yes** | Render dashboard → Environment **only** | **Optional.** See the call-out below. |
+| `GROQ_API_KEY` | api (Render) | **Yes** | Render dashboard → Environment **only** | **Optional.** Groq console key. See the call-out below. |
+| `LLM_BASE_URL` | api (Render) | No | Render dashboard → Environment | **Optional.** Defaults to `https://api.groq.com/openai/v1`. Set it to point the same adapter at any other OpenAI-compatible host. |
+| `LLM_MODEL` | api (Render) | No | Render dashboard → Environment | **Optional.** Defaults to `llama-3.3-70b-versatile`. |
 | `VITE_API_URL` | web (Vercel) | No (public) | Vercel dashboard → Environment | Base URL of the Render api, e.g. `https://assay-api.onrender.com`. **Build-time** — Vite inlines `VITE_*` into the browser bundle, so it is public and a change requires a **web redeploy**, not just a restart. Never put a secret in a `VITE_*` var. |
 | `PORT` | api (Render) | No | Injected by Render automatically | App must `listen(process.env.PORT)` — do not hardcode. Local dev falls back to `4000`. |
 | `NODE_ENV` | api (Render) + web build | No | Render: set `production`. Vercel: set automatically for prod builds | Gates production behaviour (error verbosity, Prisma logging). |
 | `CORS_ORIGIN` | api (Render) | No | Render dashboard → Environment | The web origin, e.g. `https://assay.vercel.app`. Drives the Express CORS allowlist (§5). |
 
-**`ANTHROPIC_API_KEY` — the graceful-degradation rule (00-SPEC §8, §2.3):**
-- It lives **only** in the Render host dashboard. **Never** in git, `.env` (which is git-ignored), the client bundle, or a `VITE_*` var. The frontend never sees it — the Anthropic SDK is imported solely by `apps/api/src/lib/` server code.
+**`GROQ_API_KEY` — the graceful-degradation rule (00-SPEC §8, §2.3):**
+- It lives **only** in the Render host dashboard. **Never** in git, `.env` (which is git-ignored), the client bundle, or a `VITE_*` var. The frontend never sees it — the `openai` SDK is imported solely by `apps/api/src/lib/llm.ts` server code.
 - The app **runs fully without it.** When the key is unset, classification silently falls back to the regex/heuristic path and `healthNarrative` stays `null` (nullable by design, 00-SPEC §6). The live demo must never look broken because the key is absent — that is the whole point of it being optional.
 - Set it only if you want AI-refined tags + narratives in the demo. Absence is a supported, tested state, not an error.
 
@@ -143,7 +145,7 @@ Exactly six variables. Names are synthetic config keys; **no real values appear 
   `apps/api/.env.example`
   ```dotenv
   DATABASE_URL=
-  ANTHROPIC_API_KEY=
+  GROQ_API_KEY=
   PORT=4000
   NODE_ENV=development
   CORS_ORIGIN=http://localhost:5173
@@ -152,8 +154,8 @@ Exactly six variables. Names are synthetic config keys; **no real values appear 
   ```dotenv
   VITE_API_URL=http://localhost:4000
   ```
-- **Server-side-only key usage.** The Anthropic client is instantiated once in `apps/api/src/lib/` (per 00-SPEC §5) and imported by nothing in `apps/web`. Keys enter the process only via `process.env` on the host; they are never bundled, logged, or returned in an API response.
-- Validate config at startup (fail-fast): assert `DATABASE_URL` is present and parse `PORT`; treat `ANTHROPIC_API_KEY` as optional. A missing `DATABASE_URL` should crash the boot loudly, not 500 on first request.
+- **Server-side-only key usage.** The LLM client is instantiated once in `apps/api/src/lib/llm.ts` (per 00-SPEC §5) and imported by nothing in `apps/web`. Keys enter the process only via `process.env` on the host; they are never bundled, logged, or returned in an API response.
+- Validate config at startup (fail-fast): assert `DATABASE_URL` is present and parse `PORT`; treat `GROQ_API_KEY` as optional. A missing `DATABASE_URL` should crash the boot loudly, not 500 on first request.
 
 ### CORS (web origin → api)
 The api enables CORS for the single web origin. In `apps/api`:

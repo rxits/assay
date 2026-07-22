@@ -183,8 +183,8 @@ describe("GET /api/system", () => {
     expect(s.api.status).toBe("ok");
     expect(s.database.connected).toBe(true);
     expect(s.database.datasetCount).toBe(0);
-    // No ANTHROPIC_API_KEY in test → the regex-only path (07 §6.1).
-    expect(s.llm.state).toBe(process.env.ANTHROPIC_API_KEY ? "configured" : "regex-fallback");
+    // No GROQ_API_KEY in test → the regex-only path (07 §6.1).
+    expect(s.llm.state).toBe(process.env.GROQ_API_KEY ? "configured" : "regex-fallback");
     expect(s.ingestion.maxUploadMb).toBeGreaterThan(0);
     expect(s.ingestion.xlsxFirstSheetOnly).toBe(true);
     expect(s.versions.node).toBe(process.version);

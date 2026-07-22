@@ -43,7 +43,7 @@ export const config = {
 export const CLASSIFY = {
   CLASSIFY_THRESHOLD: 0.70, // [spec §8] value-match share to auto-classify; confidence = share
   SAMPLE_SIZE: 200, // [tunable] non-null values reservoir-sampled per column for value matching
-  AI_SAMPLE_SIZE: 10, // [tunable] values sent to Claude (reuse Column.sampleValues, ≤10)
+  AI_SAMPLE_SIZE: 10, // [tunable] values sent to the LLM (reuse Column.sampleValues, ≤10)
   HEADER_CONFIDENCE: 0.60, // [tunable] confidence when only the header name matches
   AMBIGUOUS_MIN: 0.30, // [tunable] partial value-share (0.30–0.70) that marks a column "ambiguous"
 } as const;

@@ -15,12 +15,12 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.112.3",
     "@assay/shared": "workspace:*",
     "@prisma/client": "^5.22.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "multer": "^2.2.0",
+    "openai": "^6.48.0",
     "papaparse": "^5.5.4",
     "xlsx": "^0.18.5",
     "zod": "^4.4.3"

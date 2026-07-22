@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import type { DataMutationResult, SystemStatus } from "@assay/shared";
 import { prisma } from "../lib/prisma";
 import { CLASSIFY, INGEST, MAX_UPLOAD_MB } from "../lib/config";
-import { ANTHROPIC_MODEL, anthropic } from "../lib/anthropic";
+import { LLM_MODEL, llm } from "../lib/llm";
 import { deleteAllDatasets, seedDemoData } from "../services/demo";
 import { getSettings, patchSettings, recomputeAllScores, resetSettings } from "../services/settings";
 
@@ -74,7 +74,7 @@ settingsRouter.get(
         uptimeSeconds: Math.round(process.uptime()),
       },
       database,
-      llm: { state: anthropic ? "configured" : "regex-fallback", model: ANTHROPIC_MODEL },
+      llm: { state: llm ? "configured" : "regex-fallback", model: LLM_MODEL },
       ingestion: {
         maxUploadMb: MAX_UPLOAD_MB,
         sampleRowsCap: INGEST.sampleRowsCap,

@@ -200,7 +200,7 @@ TDD rhythm per domain task: **write failing test → run (fails) → implement p
 - [ ] Implement; run → passes. Commit: `feat(api): integrate scoring into ingestion pipeline`.
 
 **Task 2.5 — Optional AI layer (graceful)**
-- Files: `src/lib/anthropic.ts` (`07 §6.2`, **R8 defensive parse**), hook into `ingest.ts` for ambiguous columns + `healthNarrative`.
+- Files: `src/lib/llm.ts` (`07 §6.2`, **R8 defensive parse**), hook into `ingest.ts` for ambiguous columns + `healthNarrative`.
 - [ ] **Verify `@anthropic-ai/sdk` structured-output shape** against installed version; adapt adapter; ensure `anthropic===null` path (no key) is the tested default.
 - [ ] Test: with no key, classification still resolves via regex, `healthNarrative` null; ambiguous fixture → AUTO_AI only when key present (mock).
 - [ ] Commit: `feat(api): optional Claude classification and health narrative`.

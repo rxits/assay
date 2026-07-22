@@ -1,7 +1,7 @@
 // Supertest against the real Express app + real Prisma (throwaway/dev test DB,
 // truncated per test). Phase 2B reality (08 §9): ingestion now classifies, quality-checks,
 // and scores — so this asserts scores present, PII tags, populated checks, and that the
-// AI layer is disabled (no ANTHROPIC_API_KEY) → regex resolves, healthNarrative null.
+// AI layer is disabled (no GROQ_API_KEY) → regex resolves, healthNarrative null.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";

@@ -4,7 +4,7 @@
 // up-front (4xx, no row). A fault *after* the row exists (e.g. a non-rectangular file) flips
 // the dataset to FAILED at 201 with null scores (R1) — a broken dataset is a catalogued
 // first-class citizen, never a 500. Classification/scoring/narrative run here (Phase 2B);
-// the AI layer degrades to regex-only when ANTHROPIC_API_KEY is unset (07 §6, R8).
+// the AI layer degrades to regex-only when GROQ_API_KEY is unset (07 §6, R8).
 import type { Prisma } from "@prisma/client";
 import type { DatasetSummary, FileType, PiiCategory, Sensitivity, TagSource } from "@assay/shared";
 import { prisma } from "../lib/prisma";
@@ -14,7 +14,7 @@ import { profileDataset, type ProfiledColumn } from "../domain/profile";
 import { classifyColumn, type ClassifyConfig } from "../domain/classification";
 import { detectQualityChecks } from "../domain/quality";
 import { scoreProfiledDataset } from "./scoring";
-import { anthropic, classifyColumnAI, generateHealthNarrative } from "../lib/anthropic";
+import { classifyColumnAI, generateHealthNarrative, llm } from "../lib/llm";
 import { ApiHttpError } from "../lib/errors";
 import { getEffectiveSettings, toClassifyConfig, toScoringConfig } from "./settings";
 import { toDatasetSummary } from "./serialize";
@@ -82,7 +82,7 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
     // effective settings are passed in, never patched onto the module.
     const settings = await getEffectiveSettings();
 
-    // Classification (regex, refined by Claude for ambiguous columns only when a key is set).
+    // Classification (regex, refined by the LLM for ambiguous columns only when a key is set).
     // Every column ends classified (incl. explicit NONE, 07 §9) → ClassificationCoverage 1.0.
     const tags = await classifyColumns(profile.columns, toClassifyConfig(settings));
     const checks = detectQualityChecks(profile);
@@ -171,13 +171,13 @@ export async function ingestDataset(input: IngestInput): Promise<DatasetSummary>
   }
 }
 
-// Regex classification per column, refined by Claude Haiku only for genuinely-ambiguous
+// Regex classification per column, refined by the Groq LLM only for genuinely-ambiguous
 // columns AND only when a key is configured (07 §6.1). No key ⇒ pure regex (the tested default).
 async function classifyColumns(columns: ProfiledColumn[], cfg: ClassifyConfig): Promise<DraftTag[]> {
   return Promise.all(
     columns.map(async (c): Promise<DraftTag> => {
       const r = classifyColumn({ header: c.name, sampleValues: c.sampleValues }, cfg);
-      if (r.needsAi && anthropic) {
+      if (r.needsAi && llm) {
         const ai = await classifyColumnAI(c.name, c.sampleValues);
         if (ai) {
           return { position: c.position, category: ai.category, sensitivity: ai.sensitivity, confidence: ai.confidence, source: "AUTO_AI" };

@@ -2,7 +2,7 @@
 
 > Design for Data Classification (brief area #3): how `assay` auto-tags sensitive
 > columns with a two-signal regex/heuristic engine, refines only genuinely
-> ambiguous columns with Claude Haiku, and supports manual override. **Derived
+> ambiguous columns with an optional LLM (Groq), and supports manual override. **Derived
 > from 00-SPEC.md** — categories, sensitivity mapping (§8), `CLASSIFY_THRESHOLD`,
 > `TagSource`, the AI-layer rules, and scoring (§9) are canonical there.
 
@@ -67,7 +67,7 @@ per column
   ├─ Signal A: header-name regex     → candidate category (cheap, deterministic)
   ├─ Signal B: value-pattern sampling→ category with match-share ≥ 0.70 (deterministic)
   ├─ resolve(A, B)                    → tag, OR "ambiguous"
-  └─ ambiguous AND ANTHROPIC_API_KEY  → Claude Haiku refine (cached in DB)
+  └─ ambiguous AND GROQ_API_KEY       → LLM refine (cached in DB)
                  else                  → regex best-guess (silent fallback)
 ```
 
@@ -257,10 +257,11 @@ enum, mapping, threshold, or the two-signal approach).
 
 ---
 
-## 6. AI fallback — Claude Haiku (optional, graceful)
+## 6. AI fallback — Groq LLM (optional, graceful)
 
-Per the `claude-api` skill and 00-SPEC §8. Model id (pinned by spec):
-**`claude-haiku-4-5-20251001`** (Haiku 4.5; alias `claude-haiku-4-5`).
+Per 00-SPEC §8. Provider: **Groq**, via its OpenAI-compatible Chat Completions endpoint.
+Default model **`llama-3.3-70b-versatile`**, overridable with `LLM_MODEL`; the endpoint
+itself with `LLM_BASE_URL` (see §6.2 for why this replaced the spec's Anthropic pin).
 
 ### 6.1 Exact trigger conditions
 
@@ -268,62 +269,62 @@ The AI is called for a column **only if both** hold:
 
 1. `resolveTag(...)` returned `"AMBIGUOUS"` (partial value share in the band, or a
    strong header/value conflict), **and**
-2. `process.env.ANTHROPIC_API_KEY` is set (client constructed successfully).
+2. `process.env.GROQ_API_KEY` is set (client constructed successfully).
 
 Every non-ambiguous column (the vast majority) is decided by regex alone and never
 touches the API. No key → step 2 fails → silent fallback (§6.5).
 
-### 6.2 SDK usage (server-side, `apps/api/src/lib/anthropic.ts`)
+### 6.2 SDK usage (server-side, `apps/api/src/lib/llm.ts`)
 
-Official `@anthropic-ai/sdk` (00-SPEC §4). Structured output via
-`output_config.format` (json_schema) guarantees the response validates to
-`{category, sensitivity, confidence}` — no brittle string parsing. Haiku 4.5 is
-a simple-classification model here, so no thinking config and a tiny `max_tokens`.
+**Provider: Groq**, reached through its OpenAI-compatible Chat Completions endpoint, so
+the official `openai` SDK is the client and the provider is just a `baseURL`. Default model
+`llama-3.3-70b-versatile`; both are env-overridable (`LLM_BASE_URL`, `LLM_MODEL`), which
+makes swapping to any other OpenAI-compatible host a config change rather than a code change.
+
+> Earlier revisions of this doc specified `@anthropic-ai/sdk` + `claude-haiku-4-5-20251001`.
+> The provider changed; the *design* did not — optional adapter, ambiguous columns only,
+> ≤10 sampled values, DB-cached, silent regex fallback. Only §6.2 and §6.7 are provider-specific.
+
+`response_format: { type: "json_object" }` asks for a JSON body, but unlike a json_schema
+contract it does **not** guarantee the shape — so the adapter parses defensively (structured
+field → `JSON.parse` of the message text → `null`) and re-validates both enums itself. This is
+a classification task, so `temperature: 0` and a tiny `max_tokens`.
 
 ```ts
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
-const key = process.env.ANTHROPIC_API_KEY;
+const key = process.env.GROQ_API_KEY;
 // null when the key is absent → callers treat AI as unavailable (silent fallback)
-export const anthropic = key ? new Anthropic({ apiKey: key }) : null;
+export const llm = key
+  ? new OpenAI({ apiKey: key, baseURL: process.env.LLM_BASE_URL || "https://api.groq.com/openai/v1" })
+  : null;
+export const LLM_MODEL = process.env.LLM_MODEL || "llama-3.3-70b-versatile";
 
 const CATEGORIES = ["EMAIL","PHONE","ID_NUMBER","CREDIT_CARD","DATE_OF_BIRTH",
   "NAME","ADDRESS","IP_ADDRESS","POSTAL_CODE","NONE","OTHER"] as const;
 
 export async function classifyColumnAI(name: string, sample: string[]) {
-  if (!anthropic) return null;                       // no key → regex best-guess
-  const res = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
+  if (!llm) return null;                             // no key → regex best-guess
+  const res = await llm.chat.completions.create({
+    model: LLM_MODEL,
     max_tokens: 256,
-    system:
-      "You classify ONE dataset column into a PII category. Use ONLY the column " +
-      "name and the sampled values. Reply with JSON only; never echo the sample " +
-      "values back. If none apply, use NONE. If PII-like but no category fits, use OTHER.",
-    messages: [{
-      role: "user",
-      content:
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content:
+        "You classify ONE dataset column into a PII category. Use ONLY the column " +
+        "name and the sampled values. Reply with a JSON object holding exactly the " +
+        'keys "category", "sensitivity" and "confidence"; never echo the sample ' +
+        "values back. If none apply, use NONE. If PII-like but no category fits, use OTHER." },
+      { role: "user", content:
         `Column name: ${name}\n` +
         `Sampled values (${sample.length}): ${JSON.stringify(sample)}\n` +
-        `Categories: ${CATEGORIES.join(", ")}`,
-    }],
-    output_config: {
-      format: {
-        type: "json_schema",
-        schema: {
-          type: "object",
-          properties: {
-            category:    { type: "string", enum: [...CATEGORIES] },
-            sensitivity: { type: "string", enum: ["NONE","LOW","MEDIUM","HIGH"] },
-            confidence:  { type: "number" },
-          },
-          required: ["category", "sensitivity", "confidence"],
-          additionalProperties: false,
-        },
-      },
-    },
+        `Categories: ${CATEGORIES.join(", ")}` },
+    ],
   });
-  const text = res.content.find(b => b.type === "text")?.text ?? "{}";
-  return JSON.parse(text) as { category: string; sensitivity: string; confidence: number };
+  // Defensive (R8): structured field, else JSON.parse the text, else null → regex wins.
+  // Both enums are re-validated by the caller; an unknown category discards the whole answer.
+  return parseAndValidate(res);
 }
 ```
 
@@ -343,7 +344,7 @@ Sampled values (10): ["19850312-1234","19770923-5567","20010104-8890","19660518-
 Categories: EMAIL, PHONE, ID_NUMBER, CREDIT_CARD, DATE_OF_BIRTH, NAME, ADDRESS, IP_ADDRESS, POSTAL_CODE, NONE, OTHER
 ```
 
-**Structured response (the single text block, schema-guaranteed):**
+**Response (the single message body, JSON-mode; re-validated against both enums):**
 
 ```json
 { "category": "ID_NUMBER", "sensitivity": "HIGH", "confidence": 0.88 }
@@ -359,14 +360,14 @@ accepted as a refinement.
 The AI runs **once, at ingest**, inside the pipeline. Its result is written to
 `ClassificationTag` (`source=AUTO_AI`), and the dataset narrative to
 `Dataset.healthNarrative`. `GET /datasets/:id` reads those persisted rows and
-**never calls Anthropic** — so browsing the catalog, re-opening a dataset, or
+**never calls Groq** — so browsing the catalog, re-opening a dataset, or
 recording a `DETAIL_VIEW` is free. Only a new upload or an explicit
 `POST /datasets/:id/reprofile` can trigger fresh AI calls. Caching = persistence;
 there is no re-charge on read.
 
 ### 6.5 Silent fallback (no key / any error)
 
-If `anthropic` is `null` (no key), or the call throws / times out / returns
+If `llm` is `null` (no key), or the call throws / times out / rate-limits / returns
 invalid JSON, the pipeline **catches and falls back to the regex best-guess**:
 the value-band winner if any, else the header category, else `NONE`; `source`
 stays `AUTO_REGEX`; `healthNarrative` stays `null` (the field is nullable, 00-SPEC
@@ -375,7 +376,7 @@ stays `AUTO_REGEX`; `healthNarrative` stays `null` (the field is nullable, 00-SP
 
 ### 6.6 `healthNarrative` generation
 
-After scoring, one Haiku call per dataset summarizes the profile in plain English.
+After scoring, one chat completion per dataset summarizes the profile in plain English.
 Input is the **already-computed profile summary** (name, row/col counts,
 quality/trust/value scores, top 2–3 quality issues, count of sensitive columns) —
 **not raw rows**. Output is free text (2–3 sentences), stored in
@@ -396,31 +397,33 @@ it as governed personal data. Minor gaps — a few missing phone numbers and a d
 duplicate rows — are the only quality items worth a look.
 ```
 
-### 6.7 Approximate cost (Haiku 4.5: $1 / MTok in, $5 / MTok out)
+### 6.7 Approximate cost (Groq `llama-3.3-70b-versatile`, ~$0.59 / MTok in, ~$0.79 / MTok out)
 
 | Call                 | ~in tok | ~out tok | ~cost/call |
 |----------------------|--------:|---------:|-----------:|
-| Ambiguous column     |   ~300  |    ~25   |  ~$0.0004  |
-| `healthNarrative`    |   ~450  |   ~120   |  ~$0.001   |
+| Ambiguous column     |   ~300  |    ~25   |  ~$0.0002  |
+| `healthNarrative`    |   ~450  |   ~120   |  ~$0.0004  |
 
 A typical upload (0–3 ambiguous columns + 1 narrative) costs **well under one cent**;
-a worst-case messy 20-column dataset (~6 ambiguous + narrative) is still ~$0.004.
-The demo AI budget is effectively free, and with no key the cost is exactly zero.
+a worst-case messy 20-column dataset (~6 ambiguous + narrative) is still ~$0.002.
+Groq's free tier covers the demo outright, and with no key the cost is exactly zero.
+The **rate limit**, not the price, is the real ceiling — and a 429 is just another error,
+so it lands on the same silent regex fallback as any other failure (§6.5).
 
 ---
 
 ## 7. Secrets & PII security (per `ecc:security-review`)
 
-- **API key — host env only.** `ANTHROPIC_API_KEY` is read via
+- **API key — host env only.** `GROQ_API_KEY` is read via
   `process.env` on the **server (`apps/api`) only**. It is never hardcoded, never
   committed, and never shipped to the React client (the browser never sees it or
-  calls Anthropic). `.env` / `.env.local` are in `.gitignore`; the repo ships
+  calls the provider). `.env` / `.env.local` are in `.gitignore`; the repo ships
   **`.env.example` with an empty placeholder**:
 
   ```dotenv
   # apps/api/.env.example
   DATABASE_URL=
-  ANTHROPIC_API_KEY=      # optional — unset ⇒ classification runs regex-only (graceful)
+  GROQ_API_KEY=      # optional — unset ⇒ classification runs regex-only (graceful)
   ```
 
   The client constructor guards on presence (§6.2); absent key ⇒ AI disabled, no
@@ -470,7 +473,7 @@ The demo AI budget is effectively free, and with no key the cost is exactly zero
 
 ```
 AUTO_REGEX  ── decisive header/value match, or explicit NONE, or AI-fallback best-guess
-AUTO_AI     ── ambiguous column refined by Claude Haiku (key present, call succeeded)
+AUTO_AI     ── ambiguous column refined by the LLM (key present, call succeeded)
 MANUAL      ── human PATCH override (overridden=true); wins over both, recomputes Trust
 ```
 
@@ -486,6 +489,11 @@ being dragged down by "unknown" columns. Transparency (00-SPEC §2.4): the store
 **Divergence from 00-SPEC:** none. Categories + sensitivity map (§8), two-signal
 approach, `CLASSIFY_THRESHOLD = 0.70`, `confidence = match share`, explicit-`NONE`
 counts toward coverage, `TagSource` enum, the AI trigger/caching/silent-fallback
-rules, `healthNarrative`, the model id `claude-haiku-4-5-20251001`, and the Trust
-formula are all used exactly as written there. `SAMPLE_SIZE`, `HEADER_CONFIDENCE`,
+rules, `healthNarrative`, and the Trust formula are all used exactly as written there.
+**One deliberate divergence:** the spec named `@anthropic-ai/sdk` / `claude-haiku-4-5-20251001`
+as the AI provider; the build uses **Groq** (`llama-3.3-70b-versatile`) over its
+OpenAI-compatible endpoint instead. The AI layer is an optional adapter behind a stable
+interface (§6.1–6.5), so the provider is an implementation detail — every spec'd *behaviour*
+(trigger conditions, ≤10 sampled values, DB caching, silent fallback, nullable narrative)
+is unchanged. `SAMPLE_SIZE`, `HEADER_CONFIDENCE`,
 and `AMBIGUOUS_MIN` are tunable fill-ins the spec leaves open, flagged as such in §0.

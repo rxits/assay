@@ -37,7 +37,7 @@ data", they are "not computed yet":
 | `FAILED` | `null` (never computed) | populated |
 
 `healthNarrative` is independently nullable: it stays `null` when no
-`ANTHROPIC_API_KEY` is set, even on a `READY` dataset (graceful AI degradation,
+`GROQ_API_KEY` is set, even on a `READY` dataset (graceful AI degradation,
 00-SPEC §8). This is why these fields are `Float?`/`String?`/`Json?` rather than
 defaulted — a `0` score is a real, bad score and must not be confused with
 "not yet scored".
@@ -181,7 +181,7 @@ model Dataset {
   valueRecommendation ValueRecommendation?
 
   scoreBreakdown      Json? // component sub-scores + weights, for "explain this score"
-  healthNarrative     String? // AI summary; null when ANTHROPIC_API_KEY unset (graceful)
+  healthNarrative     String? // AI summary; null when GROQ_API_KEY unset (graceful)
   sampleRows          Json? // capped preview, <=50 rows (cap enforced in app code)
   errorMessage        String? // set only when status = FAILED
 
@@ -378,7 +378,7 @@ enum AccessSource {
 | `scoreBreakdown` | `Json?` | Holds the component sub-scores + weights (Completeness, Validity, Uniqueness, Consistency, ClassificationCoverage, Frequency, Recency, Trend) that back "explain this score" (00-SPEC §9). Shape is small, read as a whole, and never filtered on → JSON, not eight more columns. Nullable until scored. |
 | `sampleRows` | `Json?`, **≤50 rows** | A preview of the *dynamic-schema* uploaded data — column set differs per file, so it cannot be normalized into fixed columns. Read whole for the detail view, never queried into. Cap keeps a huge upload from bloating the row (see §6); cap is enforced in the ingest code, not the DB. Nullable until parsed. |
 | `sampleValues` | `Json` (**not** null), ≤10 | Per-column example values. **Non-nullable**: profiling always produces a value list (possibly `[]` for an empty column), so the field is always meaningful once the row exists. |
-| `healthNarrative` | `String?` | Independently nullable from scores: absent when `ANTHROPIC_API_KEY` is unset or the AI call fails — the dataset is still `READY`. Encodes graceful AI degradation (00-SPEC §8, principle §2.3). |
+| `healthNarrative` | `String?` | Independently nullable from scores: absent when `GROQ_API_KEY` is unset or the AI call fails — the dataset is still `READY`. Encodes graceful AI degradation (00-SPEC §8, principle §2.3). |
 | `errorMessage` | `String?` | Set **only** when `status = FAILED`; the human-readable reason (bad file, empty upload, ragged rows). Null on the happy path. |
 | `status` | `@default(PROCESSING)` | A dataset is created the instant the upload lands, before the pipeline runs; `PROCESSING` is the only correct initial state. The pipeline flips it to `READY`/`FAILED`. |
 | `Column.@@unique([datasetId, position])` | composite unique | Enforces the real invariant "no two columns of a dataset share an ordinal" (a data-integrity win for the edge-case bucket) **and** doubles as the `datasetId` FK index via leftmost prefix — one constraint, two jobs, zero redundant indexes. |

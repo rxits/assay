@@ -106,7 +106,7 @@ Here's every non-obvious dependency and the reason it earns its place:
 | **Recharts** | Declarative, composable SVG charts (usage area, type-distribution bar, histogram) that theme cleanly off CSS variables and respect the reduced-motion pass. |
 | **Tailwind + shadcn/ui** | A token-driven design system: one set of semantic CSS variables themes light/dark, and primitives stay copy-owned in-repo (no runtime UI dependency to fight). |
 | **multer · PapaParse · SheetJS** | The ingestion boundary: streamed multipart upload, robust CSV parsing, and first-sheet XLSX extraction. |
-| **`@anthropic-ai/sdk`** (optional) | Refines *ambiguous* column tags and writes a one-line health narrative — **only** when a key is present. Fully optional (see below). |
+| **`openai` SDK → Groq** (optional) | Refines *ambiguous* column tags and writes a one-line health narrative — **only** when a key is present. Groq speaks the OpenAI Chat Completions API, so the provider is a `baseURL` (`LLM_BASE_URL`) and the model an env var (`LLM_MODEL`), not a code dependency. Fully optional (see below). |
 
 **Architecture** — a clean `routes → services → domain` split:
 
@@ -115,7 +115,7 @@ apps/api/src/
   routes/     thin Express handlers  (HTTP, multer, zod, error envelope)
   services/   orchestration          (ingest pipeline, catalog queries, persistence)
   domain/     PURE functions         (profiling, classification, quality, scoring) — unit-tested
-  lib/        config, prisma, parsers, optional anthropic client
+  lib/        config, prisma, parsers, optional LLM client (Groq)
 ```
 
 All judgment (scoring, classification) lives in `domain/` with no I/O, so it's
@@ -159,8 +159,8 @@ example.
 so no config is needed locally. To point elsewhere: `cp apps/web/.env.example
 apps/web/.env` and set `VITE_API_URL`.
 
-**Optional — AI enrichment.** Set `ANTHROPIC_API_KEY` in `apps/api/.env` to
-enable Claude-refined tags on ambiguous columns and the health narrative.
+**Optional — AI enrichment.** Set `GROQ_API_KEY` in `apps/api/.env` to
+enable LLM-refined tags on ambiguous columns and the health narrative.
 **Without a key the app runs fully** on the regex/heuristic classifier — the AI
 layer is a graceful enhancement, never a requirement (see below).
 
@@ -184,7 +184,7 @@ deliberate, not accidental:
   low and reads `RETIRE` until it's opened (which records its first view). Seeds
   ship with backdated history so the demo shows a full spread immediately. No
   artificial grace period — that would diverge from the Value formula.
-- **AI is optional and graceful.** No `ANTHROPIC_API_KEY` ⇒ classification falls
+- **AI is optional and graceful.** No `GROQ_API_KEY` ⇒ classification falls
   back to regex/heuristics and `healthNarrative` stays null (the UI shows a
   neutral placeholder). Absence is a supported, tested state — never an error.
 - **Classification coverage is effectively 1.0.** Auto-classification resolves
@@ -208,8 +208,8 @@ deliberate, not accidental:
   All scoring/classification judgment is pure functions with no DB or HTTP, so
   the 20% correctness bucket is guarded by fast, deterministic unit tests and the
   routes stay trivial.
-- **The AI layer is optional and server-side only.** The Anthropic client is
-  instantiated once in `apps/api/src/lib/` and imported by nothing in the web
+- **The AI layer is optional and server-side only.** The LLM client is
+  instantiated once in `apps/api/src/lib/llm.ts` and imported by nothing in the web
   app. The key enters only via host env vars — never bundled, logged, or
   returned. The app degrades to the regex classifier the instant the key or the
   network is absent, so the live demo can never look broken because of it.
@@ -268,7 +268,7 @@ never in the repo):
 | Variable | Service | Notes |
 |---|---|---|
 | `DATABASE_URL` | Render | Neon **pooled** connection string. |
-| `ANTHROPIC_API_KEY` | Render | **Optional**, server-side only — enables AI enrichment. |
+| `GROQ_API_KEY` | Render | **Optional**, server-side only — enables AI enrichment. |
 | `VITE_API_URL` | Vercel | Public base URL of the API (build-time; inlined). |
 | `CORS_ORIGIN` | Render | The Vercel web origin, for the CORS allowlist. |
 | `PORT` | Render | Injected by the platform. |

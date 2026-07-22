@@ -25,13 +25,13 @@ flowchart LR
 
     UI ==>|"HTTPS · JSON · multipart<br/>fetch → /api/*"| API
     API -->|"Prisma · pooled TCP"| DB
-    API -.->|"only if ANTHROPIC_API_KEY set:<br/>ambiguous columns + healthNarrative"| AI
+    API -.->|"only if GROQ_API_KEY set:<br/>ambiguous columns + healthNarrative"| AI
 
     classDef corsEdge stroke:#e11d48,stroke-width:3px;
     linkStyle 0 stroke:#e11d48,stroke-width:3px,color:#e11d48;
 ```
 
-**The red edge is the CORS boundary.** `web` and `api` are served from different origins (static host vs. Express service), so browser `fetch` calls are cross-origin. The API enables CORS for the web origin only; multipart upload and JSON reads all cross this line. `api ↔ Postgres` and `api ↔ Anthropic` are server-to-server (no browser, no CORS). **The `ANTHROPIC_API_KEY` lives only in the api host's env — never shipped to the browser, never in the repo** (00-SPEC §8).
+**The red edge is the CORS boundary.** `web` and `api` are served from different origins (static host vs. Express service), so browser `fetch` calls are cross-origin. The API enables CORS for the web origin only; multipart upload and JSON reads all cross this line. `api ↔ Postgres` and `api ↔ Groq` are server-to-server (no browser, no CORS). **The `GROQ_API_KEY` lives only in the api host's env — never shipped to the browser, never in the repo** (00-SPEC §8).
 
 ---
 
@@ -41,7 +41,7 @@ pnpm-workspace monorepo, canonical layout per 00-SPEC §5. Four workspaces plus 
 
 | Path | Kind | Responsibility | Key deps |
 |---|---|---|---|
-| `apps/api` | Express service | HTTP surface + ingestion pipeline + catalog queries + Prisma persistence. Layered `routes → services → domain` (see §4). | Express 4, Prisma 5, multer, PapaParse, SheetJS, `@anthropic-ai/sdk` |
+| `apps/api` | Express service | HTTP surface + ingestion pipeline + catalog queries + Prisma persistence. Layered `routes → services → domain` (see §4). | Express 4, Prisma 5, multer, PapaParse, SheetJS, `openai` (→ Groq) |
 | `apps/api/src/domain` | Pure lib | Profiling, classification, scoring, value→recommendation. **No I/O.** Primary unit-test target. | none (pure TS) |
 | `apps/api/src/services` | Orchestration | Sequences the pipeline, owns transaction boundaries, calls parsers/AI/domain, writes via Prisma. | — |
 | `apps/api/src/routes` | HTTP handlers | Thin Express handlers → services; status codes + error envelope. | — |
@@ -158,7 +158,7 @@ sequenceDiagram
     participant S as services/ingest
     participant P as lib/parsers
     participant D as domain (pure)
-    participant AI as lib/anthropic (optional)
+    participant AI as lib/llm (optional)
     participant DB as Prisma + Postgres
 
     U->>R: POST /api/datasets (multipart file)
@@ -171,13 +171,13 @@ sequenceDiagram
     Note over S,P: validate: empty file / duplicate headers / ragged rows detected here
     S->>D: profileColumns(rows) -> dataType, missingPct, distinctCount, completeness, validity, sampleValues
     S->>D: classify(columns) -> ClassificationTag (AUTO_REGEX; category, sensitivity, confidence)
-    opt column ambiguous AND ANTHROPIC_API_KEY set
+    opt column ambiguous AND GROQ_API_KEY set
         S->>AI: refine(name, sampleValues) -> { category, sensitivity, confidence }
         AI-->>S: JSON (source=AUTO_AI) -- cached in DB
     end
     S->>D: runQualityChecks(rows, columns) -> QualityCheck[] (checkType, severity, affectedCount/Pct)
     S->>D: computeScores() -> Quality, Trust ; computeValue(accessEvents) -> Value + valueRecommendation
-    opt ANTHROPIC_API_KEY set
+    opt GROQ_API_KEY set
         S->>AI: healthNarrative(profile, scores)
         AI-->>S: narrative string (nullable on any error)
     end
@@ -239,9 +239,9 @@ Nygard-format ADRs (adapted from the ADR skill into this single doc). Status `ac
 
 **Date**: 2026-07-21 · **Status**: accepted · **Deciders**: rxit
 
-**Context.** AI (Claude Haiku) can refine ambiguous classifications and write the `healthNarrative`, but principle §2.3 forbids any feature that makes the live demo look broken, and the key must never enter the repo. Cost, latency, and availability are external.
+**Context.** The optional LLM (Groq) can refine ambiguous classifications and write the `healthNarrative`, but principle §2.3 forbids any feature that makes the live demo look broken, and the key must never enter the repo. Cost, latency, and availability are external.
 
-**Decision.** AI is an **optional adapter** (`lib/anthropic`) invoked **only** for ambiguous columns (no category ≥ `CLASSIFY_THRESHOLD` 0.70, or header/value conflict) **and only when `ANTHROPIC_API_KEY` is set**. Results are **cached in the DB** (never re-charged on read). Any missing key or error → **silent fallback** to the regex best-guess; `healthNarrative` is nullable.
+**Decision.** AI is an **optional adapter** (`lib/llm`) invoked **only** for ambiguous columns (no category ≥ `CLASSIFY_THRESHOLD` 0.70, or header/value conflict) **and only when `GROQ_API_KEY` is set**. Results are **cached in the DB** (never re-charged on read). Any missing key or error → **silent fallback** to the regex best-guess; `healthNarrative` is nullable.
 
 **Alternatives considered.**
 - *AI-first classification (always call).* Pros: best labels. Cons: per-upload cost + latency on the hot path; demo breaks if the API is down/rate-limited/keyless. **Why not:** regex already resolves the clear-cut majority at the 0.70 threshold; the risk/cost isn't worth it.
@@ -291,7 +291,7 @@ Everything degrades so the live demo never looks broken (principle §2.3). The `
 | **Duplicate headers / ragged rows / blank column** | stream-parse + profiling | **Not fatal.** Recorded as `QualityCheck` rows (`DUPLICATE_HEADER`, `EMPTY_COLUMN`, `TYPE_MISMATCH`, …) with `severity`; dataset stays `READY` with correspondingly low Quality/Consistency. |
 | **Mixed types in a column** | profiling | `dataType` = dominant type; off-type values lower `validity`; `INVALID_VALUES` / `TYPE_MISMATCH` checks emitted. |
 | **Oversized file** | multer cap + streaming | Size cap at upload; rows streamed and capped — never buffered whole (ADR-002). No OOM. |
-| **AI down / no key / rate-limited / bad JSON** | `lib/anthropic` | **Silent fallback** to regex best-guess; `TagSource` stays `AUTO_REGEX`; `healthNarrative = null` (UI hides the block). Cached AI results still served. Demo unaffected (ADR-003). |
+| **AI down / no key / rate-limited / bad JSON** | `lib/llm` | **Silent fallback** to regex best-guess; `TagSource` stays `AUTO_REGEX`; `healthNarrative = null` (UI hides the block). Cached AI results still served. Demo unaffected (ADR-003). |
 | **DB cold-start (Neon scale-to-zero)** | first query | First query slow; `GET /api/health` warms the pool; ingest shows `PROCESSING` + a loading state; transient connection errors retried; pooled connection string respects free-tier limits (ADR-005). |
 | **Any unexpected error** | route error handler | Consistent `{ error: { code, message, details? } }` envelope (00-SPEC §7); never a raw stack to the client. |
 
@@ -305,7 +305,7 @@ Deliberately **out of scope** for the take-home (00-SPEC §12 forbids building t
 |---|---|---|
 | **Large files** | Ingest runs **inline** on the request thread; large files streamed + capped. | Move ingest to a **job queue** (BullMQ/SQS) + worker; `POST /datasets` returns `202` + a `PROCESSING` dataset id; client polls/subscribes. Removes the size cap. |
 | **Raw data** | Raw rows discarded after profiling (ADR-002). | **Object storage** (S3/R2) for the original upload → reprofile with new logic, audit, and presigned direct uploads that bypass the API for huge files. Lifts ADR-002's re-upload limitation. |
-| **Access control** | No auth, single tenant (§12). | Real **authn/z**: org/user scoping, RBAC on datasets, audit log, per-tenant isolation; `ANTHROPIC_API_KEY` in a secret manager/vault rather than a plain env var. |
+| **Access control** | No auth, single tenant (§12). | Real **authn/z**: org/user scoping, RBAC on datasets, audit log, per-tenant isolation; `GROQ_API_KEY` in a secret manager/vault rather than a plain env var. |
 | **Observability** | None (§12); consistent error envelope + status enum only. | **Structured logging, tracing (OpenTelemetry), metrics + dashboards, error tracking (Sentry), alerting** on FAILED-rate and AI-fallback-rate. |
 | **Hardening** | Size cap + input validation at the upload boundary. | Rate limiting on upload, upload content/AV scanning, DB backups + a migration/rollback runbook, catalog-read caching, horizontal scaling of the stateless API. |
 

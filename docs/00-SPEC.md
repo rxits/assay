@@ -48,6 +48,9 @@
 | CSV parse | PapaParse | 5.x |
 | XLSX parse | SheetJS (`xlsx`) | latest |
 | AI (optional) | `@anthropic-ai/sdk`, model `claude-haiku-4-5-20251001` | latest |
+
+> **As built, this one line diverged:** the AI layer ships on **Groq** (`openai` SDK → OpenAI-compatible endpoint, default model `llama-3.3-70b-versatile`), read from `GROQ_API_KEY`. Every *behaviour* specified below — ambiguous-columns-only, ≤10 sampled values, DB caching, silent regex fallback, nullable `healthNarrative` — is unchanged; only the provider moved. Rationale in `07-CLASSIFICATION.md` §6.2.
+
 | Client | React + Vite | React 18, Vite 5 |
 | Styling | Tailwind + shadcn/ui | v3 / latest |
 | Data fetching | TanStack Query | 5.x |
