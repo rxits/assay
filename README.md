@@ -12,7 +12,11 @@ take-home.
 
 ## Live Demo
 
-<!-- add Vercel URL -->
+**<https://assay-one.vercel.app>** — dashboard, catalog and upload, seeded with five
+datasets that between them cover every recommendation band and one deliberate parse
+failure.
+
+The API is separate: **<https://assay-uu55.onrender.com/api/health>**.
 
 > **Note on first load (free-tier cold start).** The API is hosted on Render's free tier, which spins the service down after ~15 minutes of inactivity, and the Neon database scales to zero when idle. **The first request after a period of inactivity takes about 20–30 seconds** while the API wakes and the database resumes; every request after that is fast. If the dashboard looks slow or empty on first load, wait a moment and refresh — this is expected free-tier behaviour, not a bug.
 
