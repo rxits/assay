@@ -58,6 +58,12 @@
     --status-warning: #fab219;
     --status-critical: #d03b3b;
     --status-muted: #898781;
+    /* Text-only companions. The status hues above are tuned as FILLS and stay
+       mode-invariant so a badge reads the same in both themes; as small text on the dark
+       canvas #d03b3b measures 3.9:1, under the 4.5:1 body minimum. These are the values
+       to use when the hue carries a glyph or a word rather than an area. */
+    --status-critical-fg: #d03b3b;
+    --status-good-fg: #0ca30c;
 
     /* Premium glass chrome (R1) — translucent surfaces layered over the canvas.
        Light theme: a bright frosted panel with a soft white top-highlight. */
@@ -76,6 +82,9 @@
 
   .dark {
     color-scheme: dark; /* native <select> dropdowns + scrollbars follow dark mode */
+    /* Fills stay as declared; only the text companions lift, to ~5.5:1 and ~5.0:1. */
+    --status-critical-fg: #f07a7a;
+    --status-good-fg: #4ec94e;
     /* R1 premium retheme: warm-grey → cool deep charcoal (Linear/Raycast). The
        validated data science below (primary, score ramp, status hues) is kept
        exactly; only the chrome neutrals shift cool + darker for the glass canvas. */

@@ -28,14 +28,23 @@ import { formatCount } from "@/lib/format";
 import { fadeUpItem, staggerContainer, useReduceMotion } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
+// Every value the API's sort allowlist accepts, in both directions. Clicking a column
+// header twice flips to ascending, and an option the <select> does not know about makes it
+// fall back to its first entry — so it would read "Newest" while the table was sorted by
+// quality. The control must be able to name any state the table can be in.
 const SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "-uploadedAt", label: "Newest" },
   { value: "uploadedAt", label: "Oldest" },
   { value: "name", label: "Name A–Z" },
+  { value: "-name", label: "Name Z–A" },
   { value: "-qualityScore", label: "Quality (high→low)" },
+  { value: "qualityScore", label: "Quality (low→high)" },
   { value: "-trustScore", label: "Trust (high→low)" },
+  { value: "trustScore", label: "Trust (low→high)" },
   { value: "-valueScore", label: "Value (high→low)" },
+  { value: "valueScore", label: "Value (low→high)" },
   { value: "-rowCount", label: "Largest" },
+  { value: "rowCount", label: "Smallest" },
 ];
 
 const SENSITIVITIES: Sensitivity[] = ["NONE", "LOW", "MEDIUM", "HIGH"];
@@ -192,7 +201,11 @@ export function CatalogPage() {
               count={datasets.length}
               total={total}
               busy={isFetching}
-              onChange={setOffset}
+              onChange={(next) => {
+                setOffset(next);
+                // Page 2 starts at the top of page 2, not wherever page 1 was left scrolled.
+                window.scrollTo({ top: 0, behavior: "auto" });
+              }}
             />
           )}
         </>

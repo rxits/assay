@@ -11,6 +11,13 @@ import { RecommendationBadge, SensitivityBadge } from "@/components/dataset/Sens
 import { formatCompact, formatCount, relativeTime } from "@/lib/format";
 import { fadeUpItem } from "@/lib/motion";
 
+// The three scores in display order, paired with the initial that identifies each gauge.
+const SCORES: ReadonlyArray<readonly [string, (d: DatasetSummary) => number | null]> = [
+  ["Quality", (d) => d.qualityScore],
+  ["Trust", (d) => d.trustScore],
+  ["Value", (d) => d.valueScore],
+];
+
 export function DatasetCard({ dataset: d }: { dataset: DatasetSummary }) {
   const FileIcon = d.fileType === "XLSX" ? FileSpreadsheet : FileText;
   const failed = d.status === "FAILED";
@@ -28,7 +35,7 @@ export function DatasetCard({ dataset: d }: { dataset: DatasetSummary }) {
           {failed && (
             <span
               title={d.errorMessage ?? "Processing failed"}
-              className="ml-auto inline-flex items-center gap-1 text-[12px] font-medium text-[color:var(--status-critical)]"
+              className="ml-auto inline-flex items-center gap-1 text-[12px] font-medium text-[color:var(--status-critical-fg)]"
             >
               <TriangleAlert aria-hidden="true" className="h-3.5 w-3.5" />
               Failed
@@ -38,13 +45,20 @@ export function DatasetCard({ dataset: d }: { dataset: DatasetSummary }) {
 
         {scored ? (
           <>
+            {/* Q/T/V caption per gauge (the dashboard's MiniBar pattern): the inline variant
+                carries its identity in aria-label only, so without it the strip reads "87 93 63". */}
             <div className="flex items-center justify-around">
-              <ScoreGauge score={d.qualityScore} label="Quality" variant="inline" status={d.status} />
-              <ScoreGauge score={d.trustScore} label="Trust" variant="inline" status={d.status} />
-              <ScoreGauge score={d.valueScore} label="Value" variant="inline" status={d.status} />
+              {SCORES.map(([label, score]) => (
+                <span key={label} className="inline-flex items-center gap-1">
+                  <span aria-hidden="true" className="text-[10px] font-semibold uppercase text-muted-foreground">
+                    {label[0]}
+                  </span>
+                  <ScoreGauge score={score(d)} label={label} variant="inline" status={d.status} />
+                </span>
+              ))}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <RecommendationBadge value={d.valueRecommendation} size="sm" />
+              <RecommendationBadge value={d.valueRecommendation} size="sm" accesses90d={d.accessCount90d} />
               <SensitivityBadge level={d.highestSensitivity} size="sm" />
             </div>
           </>

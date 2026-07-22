@@ -31,17 +31,21 @@ function toNumbers(values: unknown[]): number[] {
   return out;
 }
 
-function fmt(n: number): string {
-  return Math.abs(n) >= 1000 || Number.isInteger(n) ? formatCompact(Math.round(n)) : n.toFixed(1);
+// `width` is the bin width, and it — not the magnitude — decides the precision. Compacting
+// on magnitude alone rendered six consecutive bins of 1001..1009 as "1K–1K", six times.
+function fmt(n: number, width = Infinity): string {
+  if (width >= 1000) return formatCompact(Math.round(n));
+  if (width >= 1) return Math.round(n).toLocaleString();
+  return n.toFixed(Math.min(4, Math.max(1, Math.ceil(-Math.log10(width)))));
 }
 
 function binize(values: number[], binCount = 6): Bin[] {
   const min = Math.min(...values);
   const max = Math.max(...values);
-  if (min === max) return [{ label: fmt(min), count: values.length }];
+  if (min === max) return [{ label: fmt(min, 1), count: values.length }];
   const width = (max - min) / binCount;
   const buckets: Bin[] = Array.from({ length: binCount }, (_, i) => ({
-    label: `${fmt(min + i * width)}–${fmt(min + (i + 1) * width)}`,
+    label: `${fmt(min + i * width, width)}–${fmt(min + (i + 1) * width, width)}`,
     count: 0,
   }));
   for (const v of values) {

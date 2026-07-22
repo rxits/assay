@@ -106,11 +106,27 @@ const RECOMMENDATION: Record<ValueRecommendation, { tone: Tone; icon: LucideIcon
 export function RecommendationBadge({
   value,
   size,
+  accesses90d,
 }: {
   value: ValueRecommendation | null;
   size?: Size;
+  /** Trailing-90-day access count, where the caller has it (catalog/detail rows). */
+  accesses90d?: number;
 }) {
   if (value == null) return <Dash />;
+  // Value is derived purely from access events, so a dataset nobody has opened scores
+  // RETIRE by arithmetic rather than by evidence — a fresh upload is not a dead one.
+  if (accesses90d === 0) {
+    return (
+      <StatusPill
+        tone="muted"
+        icon={Info}
+        label="NO USAGE DATA"
+        size={size}
+        title="No access events in the last 90 days — not enough usage to recommend on yet."
+      />
+    );
+  }
   const r = RECOMMENDATION[value];
   return <StatusPill tone={r.tone} icon={r.icon} label={value} size={size} />;
 }

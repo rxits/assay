@@ -4,7 +4,7 @@
 // one scoreBreakdown entry ({score, inputs, weights}) into weighted contribution
 // rows: weight × input = contribution (points), each bar in the sequential blue
 // ramp (05 §3.1), numbers in ink tokens + tabular-nums, weights-from-config footnote.
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import type {
   DatasetStatus,
@@ -169,13 +169,15 @@ interface ScoreBreakdownProps {
 export function ScoreBreakdown({ label, score, status, entry, subRows }: ScoreBreakdownProps) {
   const [open, setOpen] = useState(false);
   const headingId = useId();
+  const anchorRef = useRef<HTMLSpanElement>(null);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen} modal>
-      {/* Anchor (not Trigger): the gauge stays the reused button; onExplain drives open,
-          and Radix's FocusScope restores focus to it (the previously-focused node) on close. */}
+      {/* Anchor (not Trigger): the gauge stays the reused ScoreGauge button and onExplain
+          drives open. The cost is focus return — a modal Popover restores focus to its
+          Trigger, which here is never registered — so Content re-focuses the gauge itself. */}
       <Popover.Anchor asChild>
-        <span className="inline-flex">
+        <span ref={anchorRef} className="inline-flex">
           <ScoreGauge
             score={score}
             label={label}
@@ -193,6 +195,10 @@ export function ScoreBreakdown({ label, score, status, entry, subRows }: ScoreBr
           align="center"
           sideOffset={8}
           collisionPadding={12}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            anchorRef.current?.querySelector("button")?.focus();
+          }}
           className="z-50 w-80 max-w-[320px] rounded-xl border border-[color:var(--glass-border)] bg-popover p-4 text-popover-foreground shadow-[var(--glass-shadow)] outline-none"
         >
           {entry && score != null ? (

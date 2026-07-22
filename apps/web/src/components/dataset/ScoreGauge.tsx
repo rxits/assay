@@ -5,10 +5,12 @@
 // Two variants:
 //  - "detail"  132px, a <button aria-haspopup="dialog"> that opens the "explain
 //              this score" breakdown (the popover itself is Phase 3C — here we
-//              just call `onExplain`). Numeral + label + valence tier chip.
-//  - "inline"  40px, role="meter", for table cells / card strips (not a button;
-//              the row/card is the click target).
+//              just call `onExplain`). Numeral + label + valence tier chip + a
+//              "Why?" caption, so the breakdown is visible and not just announced.
+//  - "inline"  40px, role="meter" once there is a value to report, for table cells /
+//              card strips (not a button; the row/card is the click target).
 import { useEffect, useState } from "react";
+import { Info } from "lucide-react";
 import type { DatasetStatus } from "@assay/shared";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +41,18 @@ export function scoreBand(score: number): 0 | 1 | 2 | 3 | 4 {
   if (score < 90) return 3;
   return 4;
 }
+
+/**
+ * What each score actually means, in one line — the Trust-vs-Value distinction the
+ * catalog is judged on. Written once here (the score vocabulary already lives in this
+ * module) and read by the settings weight hints, the catalog headers and the KPI tiles,
+ * so those three never drift apart.
+ */
+export const SCORE_COPY: Record<"quality" | "trust" | "value", string> = {
+  quality: "Quality measures the data itself: how complete, how valid and how distinct its values are.",
+  trust: "Trust folds Quality back in alongside type consistency and how much of the dataset is classified.",
+  value: "Value is derived from access events: how often, how recently, and which way the trend is going.",
+};
 
 type Tone = "good" | "warning" | "critical";
 /** Valence ("is this good?") — rides the tier chip, NOT the ring (05 §3.1). Shared with the breakdown header. */
@@ -163,15 +177,14 @@ export function ScoreGauge({
 
   if (variant === "inline") {
     const size = 40;
+    // A meter with no value is a broken meter (axe aria-required-attr), and FAILED /
+    // PROCESSING rows have none — those read as a plain labelled span instead.
+    const meter =
+      score == null || failed
+        ? { "aria-label": ariaLabel }
+        : { role: "meter", "aria-valuenow": score, "aria-valuemin": 0, "aria-valuemax": 100, "aria-label": ariaLabel };
     return (
-      <span
-        role="meter"
-        aria-valuenow={score ?? undefined}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={ariaLabel}
-        className={cn("inline-flex items-center gap-1.5", className)}
-      >
+      <span {...meter} className={cn("inline-flex items-center gap-1.5", className)}>
         {processing ? (
           <span
             className="assay-indeterminate h-1.5 w-9 rounded-full bg-muted"
@@ -214,14 +227,26 @@ export function ScoreGauge({
         </span>
       </span>
       {tier && (
-        <span className="mt-1 inline-flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+        <>
+          <span className="mt-1 inline-flex items-center gap-1.5 text-[13px] font-medium text-foreground">
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ background: `var(${TONE_VAR[tier.tone]})` }}
+              aria-hidden="true"
+            />
+            {tier.word}
+          </span>
+          {/* The breakdown was announced to screen readers and to nobody else. A quiet
+              caption tells sighted readers the ring opens. aria-hidden: the button's own
+              label already ends in "Explain this score." */}
           <span
-            className="h-2 w-2 rounded-full"
-            style={{ background: `var(${TONE_VAR[tier.tone]})` }}
             aria-hidden="true"
-          />
-          {tier.word}
-        </span>
+            className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors group-hover:text-foreground"
+          >
+            <Info className="h-3 w-3" />
+            Why?
+          </span>
+        </>
       )}
     </>
   );

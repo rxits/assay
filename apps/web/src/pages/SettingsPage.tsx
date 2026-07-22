@@ -357,7 +357,7 @@ function ActionError({ error }: { error: unknown }) {
   return (
     <p
       role="alert"
-      className="mt-2 flex w-full items-start gap-1.5 text-pretty text-[12px] leading-relaxed text-[color:var(--status-critical)]"
+      className="mt-2 flex w-full items-start gap-1.5 text-pretty text-[12px] leading-relaxed text-[color:var(--status-critical-fg)]"
     >
       <TriangleAlert aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
       {actionErrorText(error)}
@@ -714,7 +714,7 @@ function FieldError({ id, children }: { id: string; children: ReactNode }) {
     <p
       id={id}
       role="status"
-      className="mt-2 flex items-start gap-1.5 text-pretty text-[12px] leading-relaxed text-[color:var(--status-critical)]"
+      className="mt-2 flex items-start gap-1.5 text-pretty text-[12px] leading-relaxed text-[color:var(--status-critical-fg)]"
     >
       <TriangleAlert aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0" />
       {children}
@@ -756,7 +756,7 @@ function ConfirmButton({
             onConfirm();
           } else setArmed(true);
         }}
-        className={cn(BTN, armed && "border-[color:var(--status-critical)] text-[color:var(--status-critical)]", className)}
+        className={cn(BTN, armed && "border-[color:var(--status-critical)] text-[color:var(--status-critical-fg)]", className)}
       >
         {busy ? <Spinner /> : <Icon aria-hidden="true" className="h-3.5 w-3.5" />}
         {armed ? confirmLabel : children}
@@ -1465,7 +1465,7 @@ function DataSection() {
         style={{ borderColor: "color-mix(in srgb, var(--status-critical) 40%, transparent)" }}
       >
         <div className="flex items-center gap-2">
-          <TriangleAlert aria-hidden="true" className="h-4 w-4 text-[color:var(--status-critical)]" />
+          <TriangleAlert aria-hidden="true" className="h-4 w-4 text-[color:var(--status-critical-fg)]" />
           <span className="text-[13.5px] font-medium text-foreground">Delete every dataset</span>
         </div>
         <p className="mt-1 max-w-prose text-pretty text-[12px] leading-relaxed text-muted-foreground">
@@ -1500,7 +1500,7 @@ function DataSection() {
             }
             className={cn(
               BTN,
-              "border-[color:var(--status-critical)] text-[color:var(--status-critical)] hover:bg-[color:var(--status-critical)]/10",
+              "border-[color:var(--status-critical)] text-[color:var(--status-critical-fg)] hover:bg-[color:var(--status-critical)]/10",
             )}
           >
             {deleteM.isPending ? <Spinner /> : <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />}
@@ -1644,12 +1644,12 @@ function SaveBar({
           <p className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]" aria-live="polite">
             {blocked ? (
               <>
-                <TriangleAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[color:var(--status-critical)]" />
+                <TriangleAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[color:var(--status-critical-fg)]" />
                 <span className="text-muted-foreground">Fix the highlighted fields to save.</span>
               </>
             ) : error ? (
               <>
-                <TriangleAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[color:var(--status-critical)]" />
+                <TriangleAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[color:var(--status-critical-fg)]" />
                 <span className="text-muted-foreground">{error}</span>
               </>
             ) : (
@@ -1704,7 +1704,7 @@ function SettingsSkeleton() {
 function InlineError({ children }: { children: ReactNode }) {
   return (
     <p className="flex items-center gap-2 px-4 py-3.5 text-[13px] text-muted-foreground">
-      <TriangleAlert aria-hidden="true" className="h-4 w-4 shrink-0 text-[color:var(--status-critical)]" />
+      <TriangleAlert aria-hidden="true" className="h-4 w-4 shrink-0 text-[color:var(--status-critical-fg)]" />
       {children}
     </p>
   );

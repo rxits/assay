@@ -161,7 +161,7 @@ function Detail({
             <div className="ml-auto flex flex-col items-start gap-3">
               <div className="flex flex-col gap-2">
                 <Caption>Recommendation</Caption>
-                <RecommendationBadge value={data.valueRecommendation} />
+                <RecommendationBadge value={data.valueRecommendation} accesses90d={data.accessCount90d} />
               </div>
               <div className="flex flex-col gap-2">
                 <Caption>Top sensitivity</Caption>
@@ -173,12 +173,15 @@ function Detail({
           <HealthNarrative narrative={data.healthNarrative} />
 
           <div className="grid gap-4 lg:grid-cols-3">
-            <motion.section variants={fadeUpItem} className="lg:col-span-2" aria-label="Columns">
+            {/* min-w-0 on both tracks: a grid item's default min-width is its content's
+                intrinsic width, so the columns table would widen the page instead of
+                scrolling inside its own overflow-x-auto, and the charts would never shrink. */}
+            <motion.section variants={fadeUpItem} className="min-w-0 lg:col-span-2" aria-label="Columns">
               <SectionHeader>Columns ({data.columns.length})</SectionHeader>
               <ColumnsTable data={data} />
             </motion.section>
 
-            <div className="flex flex-col gap-4">
+            <div className="flex min-w-0 flex-col gap-4">
               <motion.section variants={fadeUpItem} aria-label="Usage">
                 <SectionHeader>Usage</SectionHeader>
                 <div className={cn(GLASS_CARD, "p-4")}>
@@ -250,7 +253,7 @@ function UsageSummary({
 function ColumnsTable({ data }: { data: DatasetDetail }) {
   // Only one panel open at a time keeps the page scannable (05 §7).
   const [openId, setOpenId] = useState<string | null>(null);
-  // ponytail: expand controls are real <button>s (Tab/Enter/Space operable) with
+  // Deliberate simplification: expand controls are real <button>s (Tab/Enter/Space operable) with
   // aria-expanded/-controls, rather than a full arrow-key roving-tabindex grid —
   // matching the catalog table's precedent. Add roving nav only if AT users ask.
   return (
@@ -272,6 +275,13 @@ function ColumnsTable({ data }: { data: DatasetDetail }) {
             </tr>
           </thead>
           <tbody>
+            {data.columns.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-3 py-10 text-center text-[13px] text-muted-foreground">
+                  No columns were profiled for this dataset.
+                </td>
+              </tr>
+            )}
             {data.columns.map((col) => (
               <ColumnRow
                 key={col.id}
@@ -395,7 +405,7 @@ function FailedCard({ message }: { message: string | null }) {
       className="glass flex items-start gap-3 rounded-xl border p-6"
       style={{ borderColor: "color-mix(in srgb, var(--status-critical) 40%, transparent)" }}
     >
-      <TriangleAlert aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--status-critical)]" />
+      <TriangleAlert aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--status-critical-fg)]" />
       <div>
         <p className="text-[15px] font-medium text-foreground">This dataset failed to process</p>
         <p className="mt-1 text-pretty text-[13px] text-muted-foreground">

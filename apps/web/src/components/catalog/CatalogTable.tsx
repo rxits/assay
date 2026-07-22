@@ -12,7 +12,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, FileText, TriangleAle
 import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
 import type { DatasetSummary } from "@assay/shared";
-import { ScoreGauge } from "@/components/dataset/ScoreGauge";
+import { SCORE_COPY, ScoreGauge } from "@/components/dataset/ScoreGauge";
 import { RecommendationBadge, SensitivityBadge } from "@/components/dataset/SensitivityBadge";
 import { formatCompact, formatCount, relativeTime } from "@/lib/format";
 import { fadeUpItem, staggerContainer, useReduceMotion } from "@/lib/motion";
@@ -86,9 +86,9 @@ export function CatalogTable({ datasets, sort, onSortChange, dimmed }: CatalogTa
               <SortHeader label="Name" sortKey="name" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "name"} desc={current.desc} />
               <SortHeader label="Rows" sortKey="rowCount" onToggle={toggle} ariaSort={ariaSort} align="right" active={current.key === "rowCount"} desc={current.desc} />
               <Th align="right">Cols</Th>
-              <SortHeader label="Quality" sortKey="qualityScore" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "qualityScore"} desc={current.desc} />
-              <SortHeader label="Trust" sortKey="trustScore" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "trustScore"} desc={current.desc} />
-              <SortHeader label="Value" sortKey="valueScore" onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "valueScore"} desc={current.desc} />
+              <SortHeader label="Quality" sortKey="qualityScore" title={SCORE_COPY.quality} onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "qualityScore"} desc={current.desc} />
+              <SortHeader label="Trust" sortKey="trustScore" title={SCORE_COPY.trust} onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "trustScore"} desc={current.desc} />
+              <SortHeader label="Value" sortKey="valueScore" title={SCORE_COPY.value} onToggle={toggle} ariaSort={ariaSort} align="left" active={current.key === "valueScore"} desc={current.desc} />
               <Th align="left">Recommendation</Th>
               <Th align="left">Sensitivity</Th>
               <Th align="right">Views</Th>
@@ -121,6 +121,7 @@ function Th({ children, align }: { children: ReactNode; align: "left" | "right" 
 function SortHeader({
   label,
   sortKey,
+  title,
   onToggle,
   ariaSort,
   align,
@@ -129,6 +130,8 @@ function SortHeader({
 }: {
   label: string;
   sortKey: SortKey;
+  /** One-line definition of the column, surfaced on hover/focus. */
+  title?: string;
   onToggle: (k: SortKey) => void;
   ariaSort: (k: SortKey) => "ascending" | "descending" | "none";
   align: "left" | "right";
@@ -140,6 +143,7 @@ function SortHeader({
     <th scope="col" aria-sort={ariaSort(sortKey)} className={cn(HEADER_CLASS, "p-0")}>
       <button
         type="button"
+        title={title}
         onClick={() => onToggle(sortKey)}
         className={cn(
           // The caret springs into its new direction rather than swapping hard.
@@ -201,7 +205,7 @@ function Row({
           {failed && (
             <span
               title={d.errorMessage ?? "Processing failed"}
-              className="inline-flex items-center gap-1 text-[12px] font-medium text-[color:var(--status-critical)]"
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-[color:var(--status-critical-fg)]"
             >
               <TriangleAlert aria-hidden="true" className="h-3.5 w-3.5" />
               Failed
@@ -219,7 +223,11 @@ function Row({
       <ScoreCell score={d.trustScore} label="Trust" status={d.status} />
       <ScoreCell score={d.valueScore} label="Value" status={d.status} />
       <td className="px-3 py-2.5">
-        {failed || processing ? <span className="text-muted-foreground">—</span> : <RecommendationBadge value={d.valueRecommendation} size="sm" />}
+        {failed || processing ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <RecommendationBadge value={d.valueRecommendation} size="sm" accesses90d={d.accessCount90d} />
+        )}
       </td>
       <td className="px-3 py-2.5">
         {failed || processing ? <span className="text-muted-foreground">—</span> : <SensitivityBadge level={d.highestSensitivity} size="sm" />}

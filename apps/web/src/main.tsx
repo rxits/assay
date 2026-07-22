@@ -11,8 +11,17 @@ applyPreferences();
 
 // retry:false — a failed API call surfaces immediately (the cold-start banner /
 // error state is the UX, not a silent multi-second retry loop).
+//
+// refetchOnWindowFocus:false is not a preference here, it is a correctness fix. Reading a
+// dataset records an AccessEvent, which feeds the Value score — so with the default enabled,
+// alt-tabbing back to a detail page inflated the very metric the page was reporting, and a
+// dataset could climb out of RETIRE without anyone using it. staleTime keeps a remount from
+// doing the same thing.
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  defaultOptions: {
+    queries: { retry: false, refetchOnWindowFocus: false, staleTime: 30_000 },
+    mutations: { retry: false },
+  },
 });
 
 createRoot(document.getElementById("root")!).render(

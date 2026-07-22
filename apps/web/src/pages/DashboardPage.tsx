@@ -13,7 +13,7 @@ import { motion } from "motion/react";
 import { Database, Inbox, ShieldAlert, ShieldCheck, TriangleAlert, Upload } from "lucide-react";
 import type { DatasetSummary, Sensitivity, ValueRecommendation } from "@assay/shared";
 import { useDatasets, useOverview } from "@/lib/api";
-import { scoreBand, scoreTier } from "@/components/dataset/ScoreGauge";
+import { SCORE_COPY, scoreBand, scoreTier } from "@/components/dataset/ScoreGauge";
 import { RecommendationBadge, SensitivityBadge } from "@/components/dataset/SensitivityBadge";
 import { ChartEmpty } from "@/components/charts/chart-shell";
 import { formatCompact, formatCount, relativeTime } from "@/lib/format";
@@ -64,6 +64,7 @@ function CardTitle({ title, hint }: { title: string; hint?: string }) {
 // ---- KPI stat tiles ------------------------------------------------------
 function KpiTile({
   label,
+  title,
   icon: Icon,
   value,
   suffix,
@@ -71,6 +72,8 @@ function KpiTile({
   tone,
 }: {
   label: string;
+  /** One-line definition of the metric, surfaced on hover — Trust vs Value is the whole point. */
+  title?: string;
   icon: typeof Database;
   value: string;
   suffix?: string;
@@ -83,12 +86,18 @@ function KpiTile({
       className="glass flex flex-col gap-3 rounded-xl border border-[color:var(--glass-border)] p-4"
     >
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+        <span
+          title={title}
+          className={cn(
+            "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground",
+            title && "cursor-help decoration-dotted underline-offset-4 hover:underline",
+          )}
+        >
           {label}
         </span>
         <Icon
           aria-hidden="true"
-          className={cn("h-4 w-4", tone === "critical" ? "text-[color:var(--status-critical)]" : "text-muted-foreground")}
+          className={cn("h-4 w-4", tone === "critical" ? "text-[color:var(--status-critical-fg)]" : "text-muted-foreground")}
           strokeWidth={2}
         />
       </div>
@@ -331,12 +340,12 @@ function NeedsAttention({
                 <span className="min-w-0 flex items-center gap-2">
                   <TriangleAlert
                     aria-hidden="true"
-                    className="h-3.5 w-3.5 shrink-0 text-[color:var(--status-critical)]"
+                    className="h-3.5 w-3.5 shrink-0 text-[color:var(--status-critical-fg)]"
                   />
                   <span className="truncate text-[13px] font-medium text-foreground group-hover:underline">{d.name}</span>
                 </span>
                 {d.status === "FAILED" ? (
-                  <span className="shrink-0 text-[12px] font-medium text-[color:var(--status-critical)]">Failed</span>
+                  <span className="shrink-0 text-[12px] font-medium text-[color:var(--status-critical-fg)]">Failed</span>
                 ) : (
                   <RecommendationBadge value={d.valueRecommendation} size="sm" />
                 )}
@@ -496,12 +505,12 @@ export function DashboardPage() {
               </span>
             </KpiTile>
 
-            <KpiTile label="Avg Quality" icon={ShieldCheck} value={o.ready ? String(o.avgQuality) : "—"} suffix={o.ready ? "/100" : undefined}>
+            <KpiTile label="Avg Quality" title={SCORE_COPY.quality} icon={ShieldCheck} value={o.ready ? String(o.avgQuality) : "—"} suffix={o.ready ? "/100" : undefined}>
               {o.ready ? <ScoreMeter score={o.avgQuality} /> : <span className="text-[11px] text-muted-foreground">no scored datasets</span>}
               {o.ready > 0 && <span className="text-[11px] font-medium text-muted-foreground">{scoreTier(o.avgQuality).word}</span>}
             </KpiTile>
 
-            <KpiTile label="Avg Trust" icon={ShieldCheck} value={o.ready ? String(o.avgTrust) : "—"} suffix={o.ready ? "/100" : undefined}>
+            <KpiTile label="Avg Trust" title={SCORE_COPY.trust} icon={ShieldCheck} value={o.ready ? String(o.avgTrust) : "—"} suffix={o.ready ? "/100" : undefined}>
               {o.ready ? <ScoreMeter score={o.avgTrust} /> : <span className="text-[11px] text-muted-foreground">no scored datasets</span>}
               {o.ready > 0 && <span className="text-[11px] font-medium text-muted-foreground">{scoreTier(o.avgTrust).word}</span>}
             </KpiTile>

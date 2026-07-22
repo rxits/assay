@@ -4,15 +4,16 @@
 // indeterminate "Profiling…" while the inline pipeline runs → success adds the
 // row (list refetch). Failure surfaces a graceful message, never a stack trace.
 import { useRef, useState, type DragEvent } from "react";
-import { FileUp, X } from "lucide-react";
-import { useUploadDataset } from "@/lib/api";
+import { FileUp, TriangleAlert, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import { useSystem, useUploadDataset } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Phase =
   | { kind: "idle" }
   | { kind: "uploading"; name: string; pct: number }
   | { kind: "profiling"; name: string }
-  | { kind: "done"; name: string }
+  | { kind: "done"; name: string; id: string; failed: boolean; error: string | null }
   | { kind: "error"; message: string };
 
 const ACCEPT = [".csv", ".xlsx"];
@@ -27,6 +28,8 @@ export function UploadDropzone({ onUploaded }: { onUploaded?: () => void }) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadDataset();
+  const system = useSystem();
+  const maxUploadMb = system.data?.ingestion.maxUploadMb ?? 25;
 
   function start(file: File) {
     if (!hasAcceptedExtension(file.name)) {
@@ -47,7 +50,15 @@ export function UploadDropzone({ onUploaded }: { onUploaded?: () => void }) {
       },
       {
         onSuccess: (ds) => {
-          setPhase({ kind: "done", name: ds.name });
+          // 201 means "catalogued", not "profiled" — a FAILED dataset is a first-class row,
+          // so reporting success on it would be telling the user the opposite of the truth.
+          setPhase({
+            kind: "done",
+            name: ds.name,
+            id: ds.id,
+            failed: ds.status === "FAILED",
+            error: ds.errorMessage ?? null,
+          });
           onUploaded?.();
         },
         onError: (err) => {
@@ -87,7 +98,9 @@ export function UploadDropzone({ onUploaded }: { onUploaded?: () => void }) {
         <span className="text-[14px] font-medium text-foreground">
           Drop a CSV or XLSX file, or click to browse
         </span>
-        <span className="text-[12px] text-muted-foreground">Up to 10 MB · first sheet of an XLSX</span>
+        <span className="text-[12px] text-muted-foreground">
+          Up to {maxUploadMb} MB · first sheet of an XLSX
+        </span>
       </button>
 
       <input
@@ -126,14 +139,34 @@ export function UploadDropzone({ onUploaded }: { onUploaded?: () => void }) {
         )}
 
         {phase.kind === "done" && (
-          <p className="rounded-md border border-border bg-card p-3 text-[13px] text-foreground">
-            Added <span className="font-medium">{phase.name}</span> to the catalog.
-          </p>
+          <div className="flex items-start gap-2 rounded-md border border-border bg-card p-3 text-[13px]">
+            {phase.failed && (
+              <TriangleAlert
+                aria-hidden="true"
+                className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--status-critical-fg,var(--status-critical))]"
+              />
+            )}
+            <p className="text-foreground">
+              {phase.failed ? (
+                <>
+                  <span className="font-medium">{phase.name}</span> was catalogued but could not be
+                  profiled{phase.error ? `: ${phase.error}` : "."}
+                </>
+              ) : (
+                <>
+                  Added <span className="font-medium">{phase.name}</span> to the catalog.
+                </>
+              )}{" "}
+              <Link to={`/datasets/${phase.id}`} className="font-medium text-primary underline-offset-2 hover:underline">
+                View dataset
+              </Link>
+            </p>
+          </div>
         )}
 
         {phase.kind === "error" && (
           <div className="flex items-start justify-between gap-2 rounded-md border border-border bg-card p-3">
-            <p className="text-[13px] text-[color:var(--status-critical)]">{phase.message}</p>
+            <p className="text-[13px] text-[color:var(--status-critical-fg)]">{phase.message}</p>
             <button
               type="button"
               onClick={() => setPhase({ kind: "idle" })}
