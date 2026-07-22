@@ -29,7 +29,9 @@ export interface PaginationMeta { total: number; limit: number; offset: number; 
 export type ApiErrorCode =
   | "malformed_json" | "missing_file" | "unsupported_file_type" | "file_too_large"
   | "empty_file" | "invalid_file" | "validation_error"
-  | "dataset_not_found" | "column_not_found" | "internal_error";
+  | "dataset_not_found" | "column_not_found" | "internal_error"
+  // Security envelope (R3): a mutation was refused before it ran.
+  | "admin_token_required" | "admin_disabled" | "rate_limited";
 
 export interface ApiError {
   error: { code: ApiErrorCode; message: string; details?: FieldError[]; };

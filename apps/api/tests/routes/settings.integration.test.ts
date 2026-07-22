@@ -200,3 +200,65 @@ describe("DELETE /api/data/datasets", () => {
     expect(await prisma.column.count()).toBe(0);
   });
 });
+
+// The gate reads ADMIN_TOKEN per request, so setting it here exercises the deployed
+// behaviour without a second app instance. Every test above runs with it unset — which is
+// itself the assertion that an unset token stays out of the way in dev and CI.
+describe("admin gate (ADMIN_TOKEN set)", () => {
+  const TOKEN = "0123456789abcdef0123456789abcdef";
+  const auth = () => ({ "x-admin-token": TOKEN });
+
+  beforeAll(() => {
+    process.env.ADMIN_TOKEN = TOKEN;
+  });
+  afterAll(() => {
+    delete process.env.ADMIN_TOKEN;
+  });
+
+  it("refuses every mutating route with no header", async () => {
+    for (const send of [
+      () => request(app).patch("/api/settings").send({ freqCap: 5 }),
+      () => request(app).post("/api/settings/reset"),
+      () => request(app).post("/api/settings/recompute"),
+      () => request(app).post("/api/data/reseed"),
+      () => request(app).delete("/api/data/datasets"),
+    ]) {
+      const res = await send().expect(401);
+      expect(res.body.error.code).toBe("admin_token_required");
+    }
+  });
+
+  it("refuses a wrong token, including one of a different length", async () => {
+    for (const bad of ["nope", `${TOKEN}x`, TOKEN.slice(0, -1)]) {
+      const res = await request(app).delete("/api/data/datasets").set("x-admin-token", bad).expect(401);
+      expect(res.body.error.code).toBe("admin_token_required");
+    }
+    expect(await prisma.dataset.count()).toBe(0); // and nothing ran
+  });
+
+  it("lets the same mutations through with the correct header", async () => {
+    const patched = await request(app).patch("/api/settings").set(auth()).send({ freqCap: 5 }).expect(200);
+    expect(patched.body.data.settings.freqCap).toBe(5);
+
+    await request(app).post("/api/settings/recompute").set(auth()).expect(200);
+    await request(app).post("/api/settings/reset").set(auth()).expect(200);
+
+    const uploaded = await upload();
+    const deleted = await request(app).delete("/api/data/datasets").set(auth()).expect(200);
+    expect(deleted.body.data.datasets).toBe(1);
+    expect(uploaded.id).toEqual(expect.any(String));
+  });
+
+  it("leaves reads, uploads and classification overrides open", async () => {
+    await request(app).get("/api/settings").expect(200);
+    await request(app).get("/api/system").expect(200);
+
+    // The whole point of the gate: a reviewer with no token can still *use* the app.
+    const uploaded = await upload();
+    const column = await prisma.column.findFirstOrThrow({ where: { datasetId: uploaded.id, name: "age" } });
+    await request(app)
+      .patch(`/api/datasets/${uploaded.id}/columns/${column.id}/classification`)
+      .send({ category: "NONE" })
+      .expect(200);
+  });
+});
