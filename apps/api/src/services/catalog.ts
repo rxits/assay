@@ -249,7 +249,7 @@ export async function getDatasetDetail(id: string, track: boolean): Promise<Data
  * value-on-read (GET /:id) and the seed, so seeded usage and live views run the exact same code.
  * Quality/Trust are usage-independent and left untouched — only the Value block is spliced into
  * the stored breakdown. Appends a ScoreSnapshot for the trend sparkline.
- * ponytail: one snapshot per recompute — fine at demo scale; prune by capturedAt if it ever grows.
+ * Deliberate simplification: one snapshot per recompute — fine at demo scale; prune by capturedAt if it ever grows.
  */
 export async function recomputeDatasetValue(datasetId: string, now = new Date()): Promise<void> {
   const events = await prisma.accessEvent.findMany({ where: { datasetId }, select: { occurredAt: true } });

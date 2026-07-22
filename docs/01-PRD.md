@@ -135,7 +135,7 @@ the canonical contract (00-SPEC §6–§10) as the source of truth, not an imple
 - `PATCH /datasets/:id/columns/:columnId/classification` applies a `MANUAL` override,
   sets `overridden = true`, and recomputes `ClassificationCoverage` and Trust (FR-5).
 - **AI refine is optional and graceful:** invoked only for *ambiguous* columns
-  (no category ≥ threshold, or header/value conflict) **and only if `ANTHROPIC_API_KEY`
+  (no category ≥ threshold, or header/value conflict) **and only if `GROQ_API_KEY`
   is set**; results are cached in the DB; a missing key or any error falls back
   silently to the regex best-guess (see NFR-1).
 
@@ -206,7 +206,7 @@ the canonical contract (00-SPEC §6–§10) as the source of truth, not an imple
 ## 5. Non-functional requirements
 
 ### NFR-1 — Graceful degradation (esp. the AI layer)
-- The AI layer is **strictly optional**. No `ANTHROPIC_API_KEY`, an API error, or a
+- The AI layer is **strictly optional**. No `GROQ_API_KEY`, an API error, or a
   timeout must never break ingestion or the demo — fall back silently to the regex
   best-guess. `healthNarrative` is nullable and its absence must render cleanly.
 - AI results are **cached in the DB and never re-charged on read** — `GET` endpoints

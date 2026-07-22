@@ -74,6 +74,30 @@ Value   = 100 × (0.45·Frequency     + 0.35·Recency     + 0.20·Trend)
 by structural defects (duplicate/blank headers, ragged rows); `ClassificationCoverage`
 = classified columns / total.
 
+<details>
+<summary><b>Where the brief's five Trust factors live</b> — quality, completeness, accuracy, consistency, classification status</summary>
+
+Trust takes three arguments, not five, because two of the five are already inside the
+first one. Substituting Quality gives the expanded form:
+
+```
+Trust = 0.45·Quality + 0.30·Consistency + 0.25·ClassificationCoverage
+      = 0.45·(0.40·Completeness + 0.30·Validity + 0.30·Uniqueness)
+        + 0.30·Consistency + 0.25·ClassificationCoverage
+
+      = 0.180·Completeness      ← completeness
+      + 0.135·Validity          ← accuracy (share of values matching their type)
+      + 0.135·Uniqueness        ← ┐ together with the two above: data quality
+      + 0.300·Consistency       ← consistency
+      + 0.250·Coverage          ← classification status
+```
+
+Completeness and accuracy are deliberately *not* re-applied as separate top-level terms —
+that would double-count them, since Quality already carries them. The dataset detail page
+shows this nesting directly: open the Trust gauge and Completeness and Accuracy appear as
+sub-rows underneath Quality.
+</details>
+
 **Value inputs** (usage only):
 
 - `Frequency = min(1, log1p(accesses_90d) / log1p(50))`
@@ -108,7 +132,13 @@ Here's every non-obvious dependency and the reason it earns its place:
 | **tsup** (API bundler) | Bundles the API — including the shared source — into a single `dist/index.cjs` via esbuild in ~50ms. No `ts-node` in prod, no `tsc` project-references dance; the deploy artifact is one file. |
 | **TanStack Query** | Server state (catalog, detail, usage) is cache-first with request de-dupe, background refetch, and per-query loading/error states — which drive the skeleton/empty/error UI. `retry:false` makes the cold-start error surface immediately rather than hang. |
 | **Recharts** | Declarative, composable SVG charts (usage area, type-distribution bar, histogram) that theme cleanly off CSS variables and respect the reduced-motion pass. |
-| **Tailwind + shadcn/ui** | A token-driven design system: one set of semantic CSS variables themes light/dark, and primitives stay copy-owned in-repo (no runtime UI dependency to fight). |
+| **Tailwind** (+ shadcn/ui conventions) | A token-driven design system: one set of semantic CSS variables themes light/dark. Components are written in-repo against those tokens rather than pulled from a component library, so the only runtime UI dependencies are the two Radix primitives below. |
+| **`react-router-dom`** | Three real URLs (`/`, `/catalog`, `/datasets/:id`) — the brief asks that clicking a dataset show column detail, and that deserves a linkable, back-button-able address rather than swapped local state. |
+| **`@radix-ui/react-popover` · `react-dialog`** | The "explain this score" popover and the upload modal need correct focus management, dismissal and ARIA wiring. Both are accessibility problems with well-known wrong answers; these are unstyled primitives, so the design stays ours. |
+| **`motion`** (Framer Motion) | Score gauges and chart reveals animate on a shared spring scale (`lib/motion.ts`), and every transition is silenced under `prefers-reduced-motion`. CSS alone could not coordinate the staggered list entrances. |
+| **`lucide-react`** | One icon set, tree-shaken per import. Status is deliberately never colour-alone — each severity pairs an icon with a word, which needs a consistent icon vocabulary. |
+| **`clsx` · `tailwind-merge` · `class-variance-authority`** | Conditional Tailwind classes collide (`p-2` vs `p-4`); `tailwind-merge` resolves that by specificity, `cva` types the variant props on shared components. ~3 kB total. |
+| **`zod`** | Runtime validation at the HTTP boundary. TypeScript types vanish at compile time, so query params and JSON bodies are parsed, not trusted — this is what turns `?limit=abc` into a 422 instead of an unhandled `NaN` reaching Prisma. |
 | **multer · PapaParse · SheetJS** | The ingestion boundary: streamed multipart upload, robust CSV parsing, and first-sheet XLSX extraction. |
 | **`openai` SDK → Groq** (optional) | Refines *ambiguous* column tags and writes a one-line health narrative — **only** when a key is present. Groq speaks the OpenAI Chat Completions API, so the provider is a `baseURL` (`LLM_BASE_URL`) and the model an env var (`LLM_MODEL`), not a code dependency. Fully optional (see below). |
 
@@ -347,6 +377,18 @@ caps at `^0.27`.
 ---
 
 ## Testing
+
+The integration tests truncate every table, so they run against their own database —
+`<your db>_test`, derived automatically from `DATABASE_URL`. **Your seeded demo data is not
+touched.** Create it once:
+
+```bash
+docker exec assay-pg psql -U postgres -c 'CREATE DATABASE assay_test'
+DATABASE_URL=postgresql://postgres:postgres@localhost:5434/assay_test \
+  pnpm --filter @assay/api exec prisma migrate deploy
+```
+
+Set `TEST_DATABASE_URL` to override, or `DATABASE_URL` directly (which is what CI does).
 
 ```bash
 pnpm test                        # everything (needs the local Postgres running)

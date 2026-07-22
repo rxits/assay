@@ -19,7 +19,7 @@ export interface QualityCheckResult {
 const missingSeverity = (pct: number): Severity =>
   pct >= 0.5 ? "ERROR" : pct >= 0.2 ? "WARNING" : "INFO";
 
-// ponytail: threshold picked to match profile.ts's TYPE_COMMIT_THRESHOLD (0.8) —
+// Deliberate simplification: threshold picked to match profile.ts's TYPE_COMMIT_THRESHOLD (0.8) —
 // below it a column stayed STRING, so a strong type conflict is WARNING, minor is INFO.
 const TYPE_MISMATCH_WARN = 0.8;
 

@@ -1,7 +1,7 @@
 // The no-key path is the tested default (07 §6.1): without GROQ_API_KEY the client is
 // null, so ingestion is regex-only and the process never opens a socket to a provider.
 // The paid path is exercised by hand — mocking the SDK to test our own mock proves nothing.
-// ponytail: no key ⇒ null contract only; add a nock/msw round-trip if the parse shape drifts.
+// Deliberate simplification: no key ⇒ null contract only; add a nock/msw round-trip if the parse shape drifts.
 import { describe, it, expect } from "vitest";
 import { classifyColumnAI, generateHealthNarrative, llm } from "./llm";
 

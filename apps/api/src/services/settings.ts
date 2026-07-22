@@ -192,7 +192,7 @@ export function toClassifyConfig(s: AppSettings): ClassifyConfig {
  * classifyThreshold is NOT retroactive: re-deciding a column's category needs the raw values,
  * which we deliberately never store (03 §6). It applies to subsequent ingests; the UI says so.
  *
- * ponytail: loads all access events into memory in one query and updates row-by-row inside a
+ * Deliberate simplification: loads all access events into memory in one query and updates row-by-row inside a
  * transaction — right at demo/catalog scale. Batch by dataset id if the catalog ever grows.
  */
 export async function recomputeAllScores(now = new Date()): Promise<RecomputeResult> {

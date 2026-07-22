@@ -18,7 +18,7 @@
 - **No** auth, multi-user, realtime, job queue, or prod-infra stack. Ingest runs inline; large files are stream-parsed and capped. *(00 §12)*
 - **Raw rows are never persisted** — only per-column aggregates, scores, and a ≤50-row `sampleRows` preview. *(00 §6, 03 §6)*
 - **Graceful degradation is mandatory** — no input (bad file, missing AI key, cold DB) may make the live demo look broken. *(00 §2.3)*
-- **Secrets** (`ANTHROPIC_API_KEY`, `DATABASE_URL`) live only in host env / gitignored `.env`; repo ships `.env.example` with empty placeholders. The AI key is server-side only. *(00 §8, 09 §5)*
+- **Secrets** (`GROQ_API_KEY`, `DATABASE_URL`) live only in host env / gitignored `.env`; repo ships `.env.example` with empty placeholders. The AI key is server-side only. *(00 §8, 09 §5)*
 - **Canonical scoring** weights/constants and **canonical enums/routes** come from `00 §6–§9`. Do not alter formulas; only elaborate under-specified constants (already pinned in `06 §3`, `07 §0`).
 
 ---

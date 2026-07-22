@@ -10,3 +10,6 @@ coverage/
 .turbo/
 *.tsbuildinfo
 .vercel
+
+# Local design-tooling scratch (not part of the submission)
+.impeccable/

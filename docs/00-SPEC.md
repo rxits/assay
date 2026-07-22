@@ -214,7 +214,7 @@ Base: `/api`. JSON. Errors use a consistent shape `{ error: { code, message, det
 
 **Signals:** (a) header-name heuristic (column name regex), (b) value-pattern sampling (share of sampled non-null values matching a category regex; classify when ≥ `CLASSIFY_THRESHOLD = 0.70`). Confidence = match share. A column with a resolved tag (**including explicit `NONE`**) counts as "classified" for coverage.
 
-**AI layer (optional, graceful — see principle §2.3):** only invoked for *ambiguous* columns (no category ≥ threshold, or header/value conflict) **and only if `ANTHROPIC_API_KEY` is set**. Calls Claude Haiku with column name + sample values → `{category, sensitivity, confidence}`; also generates the dataset `healthNarrative`. Results are **cached in the DB** (never re-charged on read). No key or any error → silent fallback to regex best-guess. **The key lives only in host env vars, never in the repo.**
+**AI layer (optional, graceful — see principle §2.3):** only invoked for *ambiguous* columns (no category ≥ threshold, or header/value conflict) **and only if `GROQ_API_KEY` is set**. Calls Llama 3.3 70B (Groq) with column name + sample values → `{category, sensitivity, confidence}`; also generates the dataset `healthNarrative`. Results are **cached in the DB** (never re-charged on read). No key or any error → silent fallback to regex best-guess. **The key lives only in host env vars, never in the repo.**
 
 ## 9. Canonical scoring formulas
 
